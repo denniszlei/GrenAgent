@@ -1,14 +1,22 @@
 import { useEffect } from 'react';
-import { ThemeProvider, Header, ActionIcon } from '@lobehub/ui';
+import { ThemeProvider, Header, ActionIcon, Flexbox } from '@lobehub/ui';
 import { PanelLeft, PanelRight, SquareTerminal } from 'lucide-react';
 import { ChatView } from './features/chat/ChatView';
 import { SessionList } from './features/sessions/SessionList';
-import { ContextPanel } from './features/context/ContextPanel';
-import { DockPanel } from './features/dock/DockPanel';
+import { RightPanel } from './features/panels';
+import { TerminalPanel } from './features/terminal/TerminalPanel';
+import { ResizeHandle } from './components/ResizeHandle';
 import { AgentStoreProvider, useAgentStoreContext } from './stores/AgentStoreContext';
 import { useSessionStore } from './store';
-import { useUIStore } from './store/ui';
-import { useAppStyles } from './theme';
+import {
+  useLayoutStore,
+  SIDEBAR_MIN_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  RIGHT_PANEL_MIN_WIDTH,
+  RIGHT_PANEL_MAX_WIDTH,
+  TERMINAL_MIN_HEIGHT,
+  TERMINAL_MAX_HEIGHT,
+} from './stores/layoutStore';
 import { pi } from './lib/pi';
 
 // 暂以当前目录为单一工作区。后续可接入工作区选择/审批流程。
@@ -31,14 +39,22 @@ async function refreshSessions(workspace: string): Promise<void> {
 
 function Workspace() {
   const { store } = useAgentStoreContext();
-  const sidebarOpen = useUIStore((s) => s.sidebarOpen);
-  const contextOpen = useUIStore((s) => s.contextOpen);
-  const terminalOpen = useUIStore((s) => s.terminalOpen);
-  const toggleSidebar = useUIStore((s) => s.toggleSidebar);
-  const toggleContext = useUIStore((s) => s.toggleContext);
-  const toggleTerminal = useUIStore((s) => s.toggleTerminal);
 
-  const { styles } = useAppStyles({ sidebarOpen, contextOpen });
+  const sidebarOpen = useLayoutStore((s) => s.sidebarOpen);
+  const sidebarWidth = useLayoutStore((s) => s.sidebarWidth);
+  const setSidebarWidth = useLayoutStore((s) => s.setSidebarWidth);
+  const toggleSidebar = useLayoutStore((s) => s.toggleSidebar);
+
+  const rightPanelOpen = useLayoutStore((s) => s.rightPanelOpen);
+  const rightPanelWidth = useLayoutStore((s) => s.rightPanelWidth);
+  const setRightPanelWidth = useLayoutStore((s) => s.setRightPanelWidth);
+  const toggleRightPanel = useLayoutStore((s) => s.toggleRightPanel);
+
+  const terminalOpen = useLayoutStore((s) => s.terminalOpen);
+  const terminalHeight = useLayoutStore((s) => s.terminalHeight);
+  const setTerminalHeight = useLayoutStore((s) => s.setTerminalHeight);
+  const toggleTerminal = useLayoutStore((s) => s.toggleTerminal);
+
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
 
   const handleCreateSession = async () => {
@@ -64,57 +80,82 @@ function Workspace() {
   };
 
   return (
-    <div className={styles.appShell}>
+    <Flexbox horizontal style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
       {sidebarOpen && (
-        <aside className={styles.appSessions}>
+        <ResizeHandle
+          placement="left"
+          defaultSize={sidebarWidth}
+          minSize={SIDEBAR_MIN_WIDTH}
+          maxSize={SIDEBAR_MAX_WIDTH}
+          onResize={setSidebarWidth}
+        >
           <SessionList
             onCreateSession={handleCreateSession}
             onSwitchSession={handleSwitchSession}
             onDeleteSession={handleDeleteSession}
           />
-        </aside>
+        </ResizeHandle>
       )}
 
-      <div className={styles.appMain}>
-        <Header
-          logo={<span style={{ fontWeight: 700, fontSize: 16 }}>Hermes</span>}
-          actions={
-            <>
-              <ActionIcon
-                icon={SquareTerminal}
-                active={terminalOpen}
-                title="Terminal"
-                onClick={toggleTerminal}
-              />
-              <ActionIcon
-                icon={PanelRight}
-                active={contextOpen}
-                title="Context"
-                onClick={toggleContext}
-              />
-              <ActionIcon
-                icon={PanelLeft}
-                active={sidebarOpen}
-                title="Sidebar"
-                onClick={toggleSidebar}
-              />
-            </>
-          }
-        />
+      <Flexbox flex={1} style={{ minWidth: 0, height: '100%' }}>
+        <Flexbox horizontal flex={1} style={{ minHeight: 0 }}>
+          <Flexbox flex={1} style={{ minWidth: 0, height: '100%' }}>
+            <Header
+              logo={<span style={{ fontWeight: 700, fontSize: 16 }}>Hermes</span>}
+              actions={
+                <>
+                  <ActionIcon
+                    icon={SquareTerminal}
+                    active={terminalOpen}
+                    title="Terminal"
+                    onClick={toggleTerminal}
+                  />
+                  <ActionIcon
+                    icon={PanelRight}
+                    active={rightPanelOpen}
+                    title="Panel"
+                    onClick={toggleRightPanel}
+                  />
+                  <ActionIcon
+                    icon={PanelLeft}
+                    active={sidebarOpen}
+                    title="Sidebar"
+                    onClick={toggleSidebar}
+                  />
+                </>
+              }
+            />
+            <Flexbox flex={1} style={{ minHeight: 0, position: 'relative' }}>
+              <ChatView />
+            </Flexbox>
+          </Flexbox>
 
-        <div className={styles.appChat}>
-          <ChatView />
-        </div>
-      </div>
+          {rightPanelOpen && (
+            <ResizeHandle
+              placement="right"
+              defaultSize={rightPanelWidth}
+              minSize={RIGHT_PANEL_MIN_WIDTH}
+              maxSize={RIGHT_PANEL_MAX_WIDTH}
+              onResize={setRightPanelWidth}
+            >
+              <RightPanel />
+            </ResizeHandle>
+          )}
+        </Flexbox>
 
-      {contextOpen && (
-        <aside className={styles.appContext}>
-          <ContextPanel />
-        </aside>
-      )}
-
-      {terminalOpen && <DockPanel />}
-    </div>
+        {terminalOpen && (
+          <ResizeHandle
+            placement="bottom"
+            defaultSize={terminalHeight}
+            minSize={TERMINAL_MIN_HEIGHT}
+            maxSize={TERMINAL_MAX_HEIGHT}
+            onResize={setTerminalHeight}
+          >
+            <TerminalPanel />
+          </ResizeHandle>
+        )}
+      </Flexbox>
+    </Flexbox>
   );
 }
 
