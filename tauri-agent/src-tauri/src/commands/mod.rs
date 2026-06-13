@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod files;
 pub mod git;
+pub mod knowledge;
 pub mod sessions;
 pub mod shell;
 pub mod terminal;
