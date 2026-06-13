@@ -5,15 +5,17 @@ vi.mock('../../stores/AgentStoreContext', () => ({
   useAgentStoreContext: () => ({ workspace: '/ws' }),
 }));
 
-const { rvList } = vi.hoisted(() => ({
+const { rvList, runCommand, prompt } = vi.hoisted(() => ({
   rvList: vi.fn(() =>
     Promise.resolve([
       { id: 'n1', file: 'a.ts', line: 10, severity: 'major', message: 'bug here', createdAt: 100 },
       { id: 'n2', file: 'b.ts', line: null, severity: 'nit', message: 'style', createdAt: 200 },
     ]),
   ),
+  runCommand: vi.fn(() => Promise.resolve()),
+  prompt: vi.fn(() => Promise.resolve()),
 }));
-vi.mock('../../lib/pi', () => ({ pi: { rvList } }));
+vi.mock('../../lib/pi', () => ({ pi: { rvList, runCommand, prompt } }));
 
 import { ReviewPanel } from './ReviewPanel';
 
@@ -37,5 +39,20 @@ describe('ReviewPanel', () => {
     fireEvent.click(screen.getByTestId('rv-note-n1'));
     expect(screen.getByTestId('rv-detail').textContent).toContain('bug here');
     expect(screen.getByTestId('rv-detail').textContent).toContain('major');
+  });
+
+  it('clears review notes via /review clear', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<ReviewPanel />);
+    await waitFor(() => expect(screen.getByTestId('rv-clear')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('rv-clear'));
+    await waitFor(() => expect(runCommand).toHaveBeenCalledWith('/ws', '/review clear'));
+  });
+
+  it('triggers agent review via prompt', async () => {
+    render(<ReviewPanel />);
+    await waitFor(() => expect(screen.getByTestId('rv-agent')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('rv-agent'));
+    await waitFor(() => expect(prompt).toHaveBeenCalled());
   });
 });

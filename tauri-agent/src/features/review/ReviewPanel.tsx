@@ -1,5 +1,6 @@
-import { Flexbox } from '@lobehub/ui';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { ActionIcon, Flexbox } from '@lobehub/ui';
+import { Bot, FileText, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAgentStoreContext } from '../../stores/AgentStoreContext';
 import { pi, type ReviewNote } from '../../lib/pi';
 import { ManagerLayout } from '../common/ManagerLayout';
@@ -22,21 +23,17 @@ export function ReviewPanel() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
+  const reload = useCallback(() => {
     setError(null);
     void pi
       .rvList(workspace)
-      .then((list) => {
-        if (alive) setNotes(list);
-      })
-      .catch((e) => {
-        if (alive) setError(e instanceof Error ? e.message : String(e));
-      });
-    return () => {
-      alive = false;
-    };
+      .then((list) => setNotes(list))
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, [workspace]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
   const groups = useMemo(() => {
     const extras = [...new Set(notes.map((n) => n.severity))].filter(
@@ -53,9 +50,31 @@ export function ReviewPanel() {
     [notes, selectedId],
   );
 
+  const onClear = useCallback(async () => {
+    if (!window.confirm('确定清空审查发现？')) return;
+    await pi.runCommand(workspace, '/review clear');
+    setSelectedId(null);
+    reload();
+  }, [workspace, reload]);
+
+  const onReport = useCallback(async () => {
+    await pi.runCommand(workspace, '/review report');
+  }, [workspace]);
+
+  const onAgentReview = useCallback(() => {
+    void pi.prompt(
+      workspace,
+      '请审查当前工作区改动：用 git_diff 获取 diff，逐条用 review_note 记录发现（severity/file/line/message）。',
+    );
+  }, [workspace]);
+
   const header = (
-    <Flexbox horizontal align="center" gap={12} data-testid="rv-header" style={{ fontSize: 13 }}>
+    <Flexbox horizontal align="center" gap={12} data-testid="rv-header" style={{ fontSize: 13, width: '100%' }}>
       <span>{notes.length} 条发现</span>
+      <div style={{ flex: 1 }} />
+      <ActionIcon data-testid="rv-agent" icon={Bot} size="small" title="让 agent 审查" onClick={() => void onAgentReview()} />
+      <ActionIcon data-testid="rv-report" icon={FileText} size="small" title="生成报告" onClick={() => void onReport()} />
+      <ActionIcon data-testid="rv-clear" icon={Trash2} size="small" title="清空发现" onClick={() => void onClear()} />
     </Flexbox>
   );
 
