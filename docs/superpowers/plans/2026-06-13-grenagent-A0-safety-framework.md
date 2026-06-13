@@ -35,7 +35,7 @@
 - 测试：`extensions/safety/rules.test.ts`
 - 创建：`extensions/safety/package.json`
 
-- [ ] **步骤 1：写 package.json（含 vitest）**
+- [x] **步骤 1：写 package.json（含 vitest）**
 
 ```json
 {
@@ -47,7 +47,7 @@
 }
 ```
 
-- [ ] **步骤 2：写失败测试** `extensions/safety/rules.test.ts`
+- [x] **步骤 2：写失败测试** `extensions/safety/rules.test.ts`
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -81,9 +81,9 @@ describe("protected paths", () => {
 });
 ```
 
-- [ ] **步骤 3：运行确认失败** — `cd extensions/safety && npx vitest run` → FAIL（模块不存在）
+- [x] **步骤 3：运行确认失败** — `cd extensions/safety && npx vitest run` → FAIL（模块不存在）
 
-- [ ] **步骤 4：实现** `extensions/safety/rules.ts`
+- [x] **步骤 4：实现** `extensions/safety/rules.ts`
 
 ```ts
 const DANGEROUS_BASH = [
@@ -117,9 +117,9 @@ export function extractPath(input: Record<string, unknown>): string | undefined 
 }
 ```
 
-- [ ] **步骤 5：运行确认通过** — `cd extensions/safety && npx vitest run` → PASS
+- [x] **步骤 5：运行确认通过** — `cd extensions/safety && npx vitest run` → PASS
 
-- [ ] **步骤 6：Commit**
+- [x] **步骤 6：Commit**
 
 ```bash
 git add extensions/safety/rules.ts extensions/safety/rules.test.ts extensions/safety/package.json
@@ -134,7 +134,7 @@ git commit -m "feat(safety): add dangerous-bash and protected-path rule function
 - 创建：`extensions/safety/index.ts`
 - 创建：`extensions/safety/sandbox.ts`
 
-- [ ] **步骤 1：写 sandbox 接口** `extensions/safety/sandbox.ts`
+- [x] **步骤 1：写 sandbox 接口** `extensions/safety/sandbox.ts`
 
 ```ts
 export interface SandboxAdapter {
@@ -150,7 +150,7 @@ export class NoopSandbox implements SandboxAdapter {
 }
 ```
 
-- [ ] **步骤 2：实现 extension** `extensions/safety/index.ts`
+- [x] **步骤 2：实现 extension** `extensions/safety/index.ts`
 
 ```ts
 import type { ExtensionAPI, ProjectTrustEventResult } from "@earendil-works/pi-coding-agent";
@@ -192,7 +192,7 @@ export default function (pi: ExtensionAPI) {
 
 > 注（已核对官方类型 `types.d.ts`）：`project_trust` handler 必须返回 `ProjectTrustEventResult`（`{ trusted: "yes"|"no"|"undecided"; remember?: boolean }`），**不支持 `{ block }`**。首个返回 `yes`/`no` 的 handler 获胜并抑制内建信任提示，`undecided` 交回内建流程。`ctx` 为特化的 `ProjectTrustContext`（仅 `cwd`/`mode`/`hasUI` + `ui.{select,confirm,input,notify}`）。
 
-- [ ] **步骤 3：Commit**
+- [x] **步骤 3：Commit**
 
 ```bash
 git add extensions/safety/index.ts extensions/safety/sandbox.ts
@@ -206,7 +206,7 @@ git commit -m "feat(safety): tool_call interception (bash/paths) + project trust
 **文件：**
 - 修改：`extensions/index.ts`
 
-- [ ] **步骤 1：注册 safety**（加在 `allExtensions` 最前，使护栏最先拦截）
+- [x] **步骤 1：注册 safety**（加在 `allExtensions` 最前，使护栏最先拦截）
 
 ```ts
 import safety from "./safety/index.js";
@@ -225,12 +225,12 @@ export const allExtensions = [
 ];
 ```
 
-- [ ] **步骤 2：装依赖并重建 sidecar**（需先关闭 GrenAgent 窗口）
+- [x] **步骤 2：装依赖并重建 sidecar**（需先关闭 GrenAgent 窗口）
 
 运行：`cd extensions && npm install && cd ../tauri-agent && node scripts/build-sidecar.mjs`
 预期：`GrenAgent sidecar ready: ...pi-x86_64-pc-windows-msvc.exe`
 
-- [ ] **步骤 3：Commit**
+- [x] **步骤 3：Commit**
 
 ```bash
 git add extensions/index.ts
@@ -249,14 +249,14 @@ git commit -m "feat(safety): register safety extension into sidecar bundle (A0)"
 - 测试：`tauri-agent/src/features/extensionUi/ExtensionUiHost.test.tsx`
 - 修改：`tauri-agent/src/App.tsx`
 
-- [ ] **步骤 0：在 `pi.ts` 增加命名导出**（`pi.respondUi` 已存在，仅补一个语义化包装供 Host/测试 mock 使用）
+- [x] **步骤 0：在 `pi.ts` 增加命名导出**（`pi.respondUi` 已存在，仅补一个语义化包装供 Host/测试 mock 使用）
 
 ```ts
 export const extensionUiRespond = (workspace: string, response: Record<string, unknown>) =>
   pi.respondUi(workspace, response);
 ```
 
-- [ ] **步骤 1：写失败测试** `ExtensionUiHost.test.tsx`
+- [x] **步骤 1：写失败测试** `ExtensionUiHost.test.tsx`
 
 ```tsx
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -302,9 +302,9 @@ describe('ExtensionUiHost', () => {
 });
 ```
 
-- [ ] **步骤 2：运行确认失败** — `cd tauri-agent && npx vitest run src/features/extensionUi/ExtensionUiHost.test.tsx` → FAIL
+- [x] **步骤 2：运行确认失败** — `cd tauri-agent && npx vitest run src/features/extensionUi/ExtensionUiHost.test.tsx` → FAIL
 
-- [ ] **步骤 3：实现** `ExtensionUiHost.tsx`
+- [x] **步骤 3：实现** `ExtensionUiHost.tsx`
 
 ```tsx
 import { Modal } from '@lobehub/ui';
@@ -359,7 +359,7 @@ export function ExtensionUiHost() {
 
 > 注（已核对官方 RPC 协议 `rpc-types.ts` + `rpc-mode.ts`）：回传 **必须** 带 `type: "extension_ui_response"`，否则 pi 不会 resolve 对应的 `ctx.ui.*` Promise（agent 卡死）。值字段：`select`/`input`/`editor` → `value: string`；`confirm` → `confirmed: boolean`；取消/超时 → `cancelled: true`。Rust 端 `extension_ui_respond` 把 `response` 原样透传给 sidecar（不解析字段），故形状由前端构造。
 
-- [ ] **步骤 4：挂载到 App** — `tauri-agent/src/App.tsx` 在 `<ThemeBridge />` 同级加 `<ExtensionUiHost />`
+- [x] **步骤 4：挂载到 App** — `tauri-agent/src/App.tsx` 在 `<ThemeBridge />` 同级加 `<ExtensionUiHost />`
 
 ```tsx
       <ThemeBridge />
@@ -367,12 +367,12 @@ export function ExtensionUiHost() {
 ```
 （并在顶部 `import { ExtensionUiHost } from './features/extensionUi/ExtensionUiHost';`）
 
-- [ ] **步骤 5：运行确认通过 + 类型检查**
+- [x] **步骤 5：运行确认通过 + 类型检查**
 
 运行：`cd tauri-agent && npx vitest run src/features/extensionUi/ExtensionUiHost.test.tsx && npx tsc --noEmit`
 预期：测试 PASS，tsc 退出 0
 
-- [ ] **步骤 6：Commit**
+- [x] **步骤 6：Commit**
 
 ```bash
 git add tauri-agent/src/features/extensionUi/ tauri-agent/src/App.tsx
@@ -386,7 +386,7 @@ git commit -m "feat(safety): render extension confirm/select dialogs in GrenAgen
 **文件：**
 - 修改：`tauri-agent/src/features/settings/settingsSchema.ts`
 
-- [ ] **步骤 1：加「安全」分类两项**（沿用现有 schema 形态：boolean 字段映射到 env）
+- [x] **步骤 1：加「安全」分类两项**（沿用现有 schema 形态：boolean 字段映射到 env）
 
 ```ts
 // 在分类数组中追加：
@@ -402,7 +402,7 @@ git commit -m "feat(safety): render extension confirm/select dialogs in GrenAgen
 
 > 实现前先读 `settingsSchema.ts` 当前结构，按其确切字段形态（category/field 的键名）对齐；env 默认未设=开启（与 `index.ts` 的 `off()` 语义一致）。
 
-- [ ] **步骤 2：类型检查 + commit**
+- [x] **步骤 2：类型检查 + commit**
 
 运行：`cd tauri-agent && npx tsc --noEmit`（预期 0）
 
