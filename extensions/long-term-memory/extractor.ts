@@ -18,7 +18,9 @@ interface PiEvent {
 }
 
 export function resolvePiCommand(): string {
-  return process.env.PI_BIN ?? "pi";
+  // PI_BIN explicitly overrides; otherwise reuse the current executable (the
+  // sidecar binary itself under bun --compile) so desktop needs no global `pi`.
+  return process.env.PI_BIN ?? process.execPath;
 }
 
 export function parseExtracted(output: string): string[] {

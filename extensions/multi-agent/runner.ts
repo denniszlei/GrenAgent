@@ -21,10 +21,11 @@ interface PiEvent {
 const TIMEOUT_MS = Number(process.env.SUBAGENT_TIMEOUT_MS ?? "120000") || 120000;
 
 export function resolvePiCommand(): { cmd: string; baseArgs: string[] } {
-  // PI_BIN can point at a launcher (e.g. an absolute path or a wrapper).
+  // PI_BIN explicitly overrides; otherwise reuse the current executable (the
+  // sidecar binary itself under bun --compile) so desktop needs no global `pi`.
   const piBin = process.env.PI_BIN;
   if (piBin) return { cmd: piBin, baseArgs: [] };
-  return { cmd: "pi", baseArgs: [] };
+  return { cmd: process.execPath, baseArgs: [] };
 }
 
 export function extractFinalText(jsonlOutput: string): string {
