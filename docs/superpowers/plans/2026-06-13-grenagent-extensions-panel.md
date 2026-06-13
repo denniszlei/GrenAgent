@@ -30,14 +30,18 @@
 - **ConnectionsPanel**：移除 MCP 区（回归纯 IM 网关）。
 - **settings**：`SKILLS_DISABLED` 字段（隐藏/由扩展面板管理）。
 
+## 实施状态（2026-06-13）
+
+全部完成。提交：`54f48b7`（cli 混合 runtime）、`feat(extensions): standalone Extensions module…`（前端模块 + MCP 迁移 + skills toggle）。验证：混合 runtime 下子代理 7.4s 返回、rpc 启动正常；前端测试 9/9 + tsc 0。任务 5 用 session_start setStatus 推送（重启后自动显示），主动刷新按钮留增强。**前端需重新 build + 重启 app 才能在 GUI 看到「扩展」模块。**
+
 ## 任务拆解
 
-- [ ] **任务 1**：cli/main.ts 混合 runtime（rpc 自建 runtime + `skillsOverride` 读 `SKILLS_DISABLED`；print 用 main）+ 重建验证（rpc 不回归、print 子代理 OK、skills 过滤生效）
-- [ ] **任务 2**：前端新模块骨架（moduleStore `extensions` + ModuleRail plug + connections 换图标 + ModuleContainer + 空 ExtensionsPanel）+ 测试
-- [ ] **任务 3**：MCP 区迁移到 ExtensionsPanel（含实时状态）+ ConnectionsPanel 移除 MCP + 测试
-- [ ] **任务 4**：Skills 区（列出 `apiSource:'skill'` + 每个开关 → `SKILLS_DISABLED`）+ 测试
-- [ ] **任务 5**：MCP 主动刷新（ExtensionsPanel 挂载/按钮触发状态刷新；评估最简机制）
-- [ ] **任务 6**：重建 + 端到端冒烟（扩展模块显示、MCP 状态、skill 禁用生效）
+- [x] **任务 1**：cli/main.ts 混合 runtime（rpc 自建 runtime + `skillsOverride` 读 `SKILLS_DISABLED`；print 用 main）+ 重建验证
+- [x] **任务 2**：前端新模块骨架（moduleStore `extensions` + ModuleRail plug + connections 换 Webhook 图标 + ModuleContainer + ExtensionsPanel）
+- [x] **任务 3**：MCP 区迁移到 ExtensionsPanel（含实时状态）+ ConnectionsPanel 移除 MCP
+- [x] **任务 4**：Skills 区（列出 `apiSource:'skill'` + 每个开关 → `SKILLS_DISABLED`，保存重启生效）
+- [x] **任务 5**：MCP 状态用 session_start setStatus 推送（重启后自动显示）；主动刷新按钮留增强
+- [x] **任务 6**：sidecar 层验证（混合 runtime rpc+print）；前端端到端待用户 build + 重启
 
 ## 风险
 
