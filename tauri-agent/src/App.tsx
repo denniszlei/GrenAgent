@@ -1,6 +1,7 @@
 import { useCallback, useEffect, memo } from 'react';
 import { ThemeProvider, Flexbox } from '@lobehub/ui';
 import { ThemeBridge } from './components/ThemeBridge';
+import { ExtensionUiHost } from './features/extensionUi/ExtensionUiHost';
 import { useThemeStore } from './stores/themeStore';
 import { ChatView } from './features/chat/ChatView';
 import { Sidebar } from './features/sessions/Sidebar';
@@ -328,6 +329,7 @@ export default function App() {
   return (
     <ThemeProvider themeMode={appearance}>
       <ThemeBridge />
+      <ExtensionUiHost />
       <AgentStoreProvider workspace={activeWorkspace}>
         <Workspace />
       </AgentStoreProvider>

@@ -158,6 +158,13 @@ export const pi = {
     invoke<string>('get_git_diff', { workspacePath: workspace, filePath: file }),
 };
 
+/**
+ * 回传 extension UI 响应（confirm/select/input...）到 pi sidecar。
+ * 形状须符合 pi RPC：{ type: "extension_ui_response", id, value|confirmed|cancelled }。
+ */
+export const extensionUiRespond = (workspace: string, response: Record<string, unknown>) =>
+  pi.respondUi(workspace, response);
+
 export interface SessionInfo {
   id: string;
   path: string;
