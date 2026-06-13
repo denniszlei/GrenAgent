@@ -5,6 +5,7 @@ import CompactAction from './actions/CompactAction';
 import NewSessionAction from './actions/NewSessionAction';
 import UploadAction from './actions/UploadAction';
 import KbAddAction from './actions/KbAddAction';
+import WebSearchAction from './actions/WebSearchAction';
 import GenerateImageAction from './actions/GenerateImageAction';
 import SpeakAction from './actions/SpeakAction';
 
@@ -19,6 +20,7 @@ export const actionMap = {
   newSession: NewSessionAction,
   fileUpload: UploadAction,
   kbAdd: KbAddAction,
+  webSearch: WebSearchAction,
   generateImage: GenerateImageAction,
   speak: SpeakAction,
 } satisfies Record<string, ComponentType>;
@@ -30,6 +32,7 @@ export const DEFAULT_LEFT_ACTIONS: ActionKey[] = [
   'thinking',
   'fileUpload',
   'kbAdd',
+  'webSearch',
   'generateImage',
   'speak',
   'compact',
