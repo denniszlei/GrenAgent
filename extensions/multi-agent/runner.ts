@@ -73,7 +73,23 @@ export async function spawnPiAgent(
       resolve(r);
     };
 
-    const child = spawn(cmd, args, { cwd, env: process.env });
+    const child = spawn(cmd, args, {
+      cwd,
+      // print mode reads piped stdin; without "ignore" the child blocks waiting
+      // for stdin EOF and never runs the task → sub-agent appears to "time out".
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        // Sub-agents are isolated one-shot tasks: disable auto knowledge/memory
+        // injection, memory capture+extract, and MCP so they start fast and
+        // never recurse (each would otherwise re-run embeddings / re-connect MCP).
+        KB_AUTO_INJECT: "0",
+        MEMORY_AUTO_INJECT: "0",
+        MEMORY_AUTO_CAPTURE: "0",
+        MEMORY_EXTRACT: "0",
+        MCP_SERVERS: "",
+      },
+    });
     let stdout = "";
     let stderr = "";
 

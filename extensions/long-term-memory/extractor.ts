@@ -74,7 +74,23 @@ export async function extractMemories(
       clearTimeout(timer);
       resolve(s);
     };
-    const child = spawn(cmd, args, { cwd, env: process.env });
+    const child = spawn(cmd, args, {
+      cwd,
+      // print mode reads piped stdin; without "ignore" the child blocks waiting
+      // for stdin EOF and never runs the task.
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        // The extraction sub-process is a one-shot analysis: disable auto
+        // injection / capture / further extraction / MCP so it stays fast and
+        // never recurses into another extraction or MCP connect.
+        KB_AUTO_INJECT: "0",
+        MEMORY_AUTO_INJECT: "0",
+        MEMORY_AUTO_CAPTURE: "0",
+        MEMORY_EXTRACT: "0",
+        MCP_SERVERS: "",
+      },
+    });
     let stdout = "";
     const timer = setTimeout(() => {
       child.kill();
