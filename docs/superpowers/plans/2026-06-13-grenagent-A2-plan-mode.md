@@ -43,7 +43,7 @@
 - 测试：`extensions/plan-mode/utils.test.ts`
 - 创建：`extensions/plan-mode/utils.ts`
 
-- [ ] **步骤 1：写 package.json**
+- [x] **步骤 1：写 package.json**
 
 ```json
 {
@@ -69,7 +69,7 @@
 }
 ```
 
-- [ ] **步骤 2：写失败测试** `extensions/plan-mode/utils.test.ts`
+- [x] **步骤 2：写失败测试** `extensions/plan-mode/utils.test.ts`
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -119,9 +119,9 @@ describe("markCompletedSteps", () => {
 });
 ```
 
-- [ ] **步骤 3：运行确认失败** — `cd extensions/plan-mode && & "../../tauri-agent/node_modules/.bin/vitest.CMD" run` → FAIL（模块不存在）
+- [x] **步骤 3：运行确认失败** — `cd extensions/plan-mode && & "../../tauri-agent/node_modules/.bin/vitest.CMD" run` → FAIL（模块不存在）
 
-- [ ] **步骤 4：实现** `extensions/plan-mode/utils.ts`（搬运官方 `examples/extensions/plan-mode/utils.ts`，逐字复制其内容）
+- [x] **步骤 4：实现** `extensions/plan-mode/utils.ts`（搬运官方 `examples/extensions/plan-mode/utils.ts`，逐字复制其内容）
 
 ```ts
 // Destructive commands blocked in plan mode
@@ -218,9 +218,9 @@ export function markCompletedSteps(text: string, items: TodoItem[]): number {
 }
 ```
 
-- [ ] **步骤 5：运行确认通过** — `cd extensions/plan-mode && & "../../tauri-agent/node_modules/.bin/vitest.CMD" run` → PASS
+- [x] **步骤 5：运行确认通过** — `cd extensions/plan-mode && & "../../tauri-agent/node_modules/.bin/vitest.CMD" run` → PASS
 
-- [ ] **步骤 6：Commit**
+- [x] **步骤 6：Commit**
 
 ```bash
 git add extensions/plan-mode/utils.ts extensions/plan-mode/utils.test.ts extensions/plan-mode/package.json
@@ -234,7 +234,7 @@ git commit -m "feat(plan-mode): safe-command + plan/step extraction pure functio
 **文件：**
 - 创建：`extensions/plan-mode/index.ts`
 
-- [ ] **步骤 1：实现** `extensions/plan-mode/index.ts`
+- [x] **步骤 1：实现** `extensions/plan-mode/index.ts`
 
 ```ts
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -421,7 +421,7 @@ ${remaining}
 
 > 注（已核对官方类型 `types.d.ts`）：`pi.getActiveTools()`/`setActiveTools(string[])`、`pi.appendEntry(customType, data)`、`pi.sendMessage({customType,content,display},{triggerTurn})`、`ctx.ui.setStatus(key, text|undefined)`、`ctx.ui.select`/`notify` 均为官方 API。`getEntries()` 返回 `SessionEntry[]`，自定义条目为 `{ type:"custom", customType, data }`，用结构化断言读取。`setStatus` 是单向请求（无 response），前端任务 4 消费。
 
-- [ ] **步骤 2：Commit**
+- [x] **步骤 2：Commit**
 
 ```bash
 git add extensions/plan-mode/index.ts
@@ -435,7 +435,7 @@ git commit -m "feat(plan-mode): tool-gating state machine + plan/exec context + 
 **文件：**
 - 修改：`extensions/index.ts`
 
-- [ ] **步骤 1：注册 planMode**（import 按字母序；导出与数组放 `todo` 之后）
+- [x] **步骤 1：注册 planMode**（import 按字母序；导出与数组放 `todo` 之后）
 
 ```ts
 import planMode from "./plan-mode/index.js";
@@ -448,12 +448,12 @@ import planMode from "./plan-mode/index.js";
 - `export { safety, todo, planMode, knowledgeRag, ... }`
 - `allExtensions = [safety, todo, planMode, knowledgeRag, ...]`
 
-- [ ] **步骤 2：重建 sidecar**（先确认无 GrenAgent 进程占用 exe）
+- [x] **步骤 2：重建 sidecar**（先确认无 GrenAgent 进程占用 exe）
 
 运行：`cd tauri-agent && node scripts/build-sidecar.mjs`
 预期：`GrenAgent sidecar ready: ...`，bun 无 "Could not resolve"。
 
-- [ ] **步骤 3：Commit**
+- [x] **步骤 3：Commit**
 
 ```bash
 git add extensions/index.ts
@@ -470,7 +470,7 @@ git commit -m "feat(plan-mode): register plan-mode extension into sidecar bundle
 - 修改：`tauri-agent/src/features/extensionUi/ExtensionUiHost.tsx`
 - 测试：`tauri-agent/src/features/extensionUi/ExtensionUiHost.test.tsx`
 
-- [ ] **步骤 1：写 store** `tauri-agent/src/stores/planModeStore.ts`
+- [x] **步骤 1：写 store** `tauri-agent/src/stores/planModeStore.ts`
 
 ```ts
 import { create } from 'zustand';
@@ -487,7 +487,7 @@ export const usePlanModeStore = create<PlanModeState>((set) => ({
 }));
 ```
 
-- [ ] **步骤 2：写 store 测试** `tauri-agent/src/stores/planModeStore.test.ts`
+- [x] **步骤 2：写 store 测试** `tauri-agent/src/stores/planModeStore.test.ts`
 
 ```ts
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -505,7 +505,7 @@ describe('planModeStore', () => {
 });
 ```
 
-- [ ] **步骤 3：改 ExtensionUiHost** — 消费 `setStatus`（plan-mode → store，不弹模态）；仅 confirm/select/input 弹窗
+- [x] **步骤 3：改 ExtensionUiHost** — 消费 `setStatus`（plan-mode → store，不弹模态）；仅 confirm/select/input 弹窗
 
 替换 `useEffect` 内的回调，并在顶部 import store：
 
@@ -536,7 +536,7 @@ import { usePlanModeStore } from '../../stores/planModeStore';
 
 > 注：原实现是 `onPiUiRequest((e) => setItem(e))` —— 无条件弹窗。改为按 method 分流：交互类弹窗、setStatus 入 store、其余忽略。A0 的 confirm/select 行为不变（回归测试覆盖）。
 
-- [ ] **步骤 4：加 setStatus 测试** — 在 `ExtensionUiHost.test.tsx` 增加用例（mock store + 验证不弹模态）
+- [x] **步骤 4：加 setStatus 测试** — 在 `ExtensionUiHost.test.tsx` 增加用例（mock store + 验证不弹模态）
 
 在文件顶部 mock 段追加 store mock，并加一条测试：
 
@@ -558,12 +558,12 @@ it('routes setStatus(plan-mode) to the store without opening a modal', () => {
 
 > 实现时把现有 `const { respond } = vi.hoisted(...)` 扩展为同时提供 `setStatus`（见上方注释），保证 hoist 顺序正确。
 
-- [ ] **步骤 5：运行确认通过 + 类型检查**
+- [x] **步骤 5：运行确认通过 + 类型检查**
 
 运行：`cd tauri-agent && & "node_modules/.bin/vitest.CMD" run src/features/extensionUi/ExtensionUiHost.test.tsx src/stores/planModeStore.test.tsx && & "node_modules/.bin/tsc.CMD" --noEmit`
 预期：测试 PASS，tsc 退出 0
 
-- [ ] **步骤 6：Commit**
+- [x] **步骤 6：Commit**
 
 ```bash
 git add tauri-agent/src/stores/planModeStore.ts tauri-agent/src/stores/planModeStore.test.ts tauri-agent/src/features/extensionUi/ExtensionUiHost.tsx tauri-agent/src/features/extensionUi/ExtensionUiHost.test.tsx
@@ -578,7 +578,7 @@ git commit -m "feat(plan-mode): planModeStore + ExtensionUiHost setStatus routin
 - 修改：`tauri-agent/src/features/layout/MainColumnHeader.tsx`
 - 测试：`tauri-agent/src/features/layout/MainColumnHeader.test.tsx`
 
-- [ ] **步骤 1：写失败测试** `MainColumnHeader.test.tsx`
+- [x] **步骤 1：写失败测试** `MainColumnHeader.test.tsx`
 
 ```tsx
 import { cleanup, render, screen } from '@testing-library/react';
@@ -602,9 +602,9 @@ describe('MainColumnHeader plan-mode badge', () => {
 });
 ```
 
-- [ ] **步骤 2：运行确认失败** — `cd tauri-agent && & "node_modules/.bin/vitest.CMD" run src/features/layout/MainColumnHeader.test.tsx` → FAIL（无 badge）
+- [x] **步骤 2：运行确认失败** — `cd tauri-agent && & "node_modules/.bin/vitest.CMD" run src/features/layout/MainColumnHeader.test.tsx` → FAIL（无 badge）
 
-- [ ] **步骤 3：实现** — 在 `MainColumnHeader.tsx` 加 `PlanModeBadge` 并放入 header `left`
+- [x] **步骤 3：实现** — 在 `MainColumnHeader.tsx` 加 `PlanModeBadge` 并放入 header `left`
 
 ```tsx
 import { usePlanModeStore } from '../../stores/planModeStore';
@@ -652,12 +652,12 @@ export const MainColumnHeader = memo(function MainColumnHeader() {
 });
 ```
 
-- [ ] **步骤 4：运行确认通过 + 类型检查**
+- [x] **步骤 4：运行确认通过 + 类型检查**
 
 运行：`cd tauri-agent && & "node_modules/.bin/vitest.CMD" run src/features/layout/MainColumnHeader.test.tsx && & "node_modules/.bin/tsc.CMD" --noEmit`
 预期：测试 PASS，tsc 退出 0
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add tauri-agent/src/features/layout/MainColumnHeader.tsx tauri-agent/src/features/layout/MainColumnHeader.test.tsx
