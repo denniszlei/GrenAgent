@@ -1,0 +1,19 @@
+{
+  "name": "pi-safety",
+  "version": "0.1.0",
+  "description": "Safety/lifecycle guardrails for the Pi coding agent (dangerous-bash confirm, protected paths, project trust).",
+  "private": true,
+  "type": "module",
+  "keywords": ["pi-package", "pi-extension", "safety"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "vitest": "^4.1.8"
+  }
+}
