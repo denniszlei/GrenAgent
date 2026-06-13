@@ -64,6 +64,7 @@ pub fn run() {
             commands::agent_get_fork_messages,
             commands::agent_set_session_name,
             commands::list_pi_sessions,
+            commands::list_all_sessions,
             commands::delete_pi_session,
             commands::extension_ui_respond,
             commands::request_workspace_approval,

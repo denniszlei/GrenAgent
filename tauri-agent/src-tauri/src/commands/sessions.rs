@@ -281,6 +281,34 @@ pub async fn is_workspace_approved(
     Ok(store.is_approved(&canonical_str).await)
 }
 
+/// 列出所有项目（cwd）的会话，按 timestamp 倒序，不做 cwd 过滤。
+/// 与 `list_pi_sessions` 的区别：后者只返回 cwd 匹配当前 workspace 的会话，
+/// 本命令返回 `~/.pi/agent/sessions` 下全部带 cwd 的会话，供侧边栏按项目分组。
+#[tauri::command]
+pub async fn list_all_sessions() -> Result<Vec<SessionInfo>, String> {
+    let dir = match sessions_dir() {
+        Some(d) => d,
+        None => return Ok(vec![]),
+    };
+    let mut files = Vec::new();
+    collect_session_files(&dir, &mut files);
+
+    let mut out = Vec::new();
+    for path in files {
+        if let Ok(contents) = read_first_line(&path) {
+            let path_str = canonical_display_path(&path);
+            if let Some(info) = parse_session_header(&contents, &path_str) {
+                // 仅保留带 cwd 的会话（cwd 即"项目"，无 cwd 无法分组）
+                if info.cwd.is_some() {
+                    out.push(info);
+                }
+            }
+        }
+    }
+    out.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,5 +339,15 @@ mod tests {
         // 不存在的路径 → 走规范化回退分支
         assert!(paths_equivalent("/nope/ws/a", "/nope/ws/a/"));
         assert!(paths_equivalent("C:\\nope\\ws", "C:/nope/ws"));
+    }
+
+    #[test]
+    fn list_all_keeps_only_sessions_with_cwd() {
+        // list_all_sessions 仅保留带 cwd 的会话：验证过滤判据
+        let with_cwd =
+            "{\"type\":\"session\",\"id\":\"a\",\"cwd\":\"/ws/a\",\"timestamp\":\"2026-06-10T00:00:00Z\"}\n";
+        let no_cwd = "{\"type\":\"session\",\"id\":\"b\",\"timestamp\":\"2026-06-10T00:00:00Z\"}\n";
+        assert!(parse_session_header(with_cwd, "/tmp/a.jsonl").unwrap().cwd.is_some());
+        assert!(parse_session_header(no_cwd, "/tmp/b.jsonl").unwrap().cwd.is_none());
     }
 }
