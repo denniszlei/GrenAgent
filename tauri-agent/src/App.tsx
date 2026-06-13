@@ -14,6 +14,7 @@ import { MainColumnHeader } from './features/layout/MainColumnHeader';
 import { RightPanelShell, SidebarShell, TerminalShell } from './features/layout/PanelShells';
 import { ModuleRail } from './features/layout/ModuleRail';
 import { ModuleContainer } from './features/workspace/ModuleContainer';
+import { FullscreenLoading } from './components/FullscreenLoading';
 import { pi, type OpenWorkspaceResult } from './lib/pi';
 import { createStartupPerf } from './lib/startupPerf';
 import { pathsEquivalent } from './lib/pathUtils';
@@ -159,7 +160,7 @@ const TerminalColumn = memo(function TerminalColumn() {
 });
 
 function Workspace() {
-  const { store, workspace, setWorkspaceReady } = useAgentStoreContext();
+  const { store, workspace, setWorkspaceReady, workspaceReady } = useAgentStoreContext();
   const isStreaming = store.useStore((s) => s.isStreaming);
   const activeSessionPath = useSessionStore((s) => s.activeSessionPath);
 
@@ -308,6 +309,7 @@ function Workspace() {
           />
         </Flexbox>
       </Flexbox>
+      <FullscreenLoading visible={!workspaceReady} />
     </Flexbox>
   );
 }
