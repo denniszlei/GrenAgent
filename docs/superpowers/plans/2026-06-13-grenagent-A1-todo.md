@@ -38,7 +38,7 @@
 - 测试：`extensions/todo/todo.test.ts`
 - 创建：`extensions/todo/todo.ts`
 
-- [ ] **步骤 1：写 package.json**（对齐 `extensions/safety`）
+- [x] **步骤 1：写 package.json**（对齐 `extensions/safety`）
 
 ```json
 {
@@ -63,7 +63,7 @@
 }
 ```
 
-- [ ] **步骤 2：写失败测试** `extensions/todo/todo.test.ts`
+- [x] **步骤 2：写失败测试** `extensions/todo/todo.test.ts`
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -124,9 +124,9 @@ describe("reconstructFromEntries", () => {
 });
 ```
 
-- [ ] **步骤 3：运行确认失败** — `cd extensions/todo && & "../../tauri-agent/node_modules/.bin/vitest.CMD" run` → FAIL（模块不存在）
+- [x] **步骤 3：运行确认失败** — `cd extensions/todo && & "../../tauri-agent/node_modules/.bin/vitest.CMD" run` → FAIL（模块不存在）
 
-- [ ] **步骤 4：实现** `extensions/todo/todo.ts`
+- [x] **步骤 4：实现** `extensions/todo/todo.ts`
 
 ```ts
 export interface Todo {
@@ -217,9 +217,9 @@ export function reconstructFromEntries(entries: readonly BranchEntryLike[]): Tod
 }
 ```
 
-- [ ] **步骤 5：运行确认通过** — `cd extensions/todo && & "../../tauri-agent/node_modules/.bin/vitest.CMD" run` → PASS（8 测试）
+- [x] **步骤 5：运行确认通过** — `cd extensions/todo && & "../../tauri-agent/node_modules/.bin/vitest.CMD" run` → PASS（8 测试）
 
-- [ ] **步骤 6：Commit**
+- [x] **步骤 6：Commit**
 
 ```bash
 git add extensions/todo/todo.ts extensions/todo/todo.test.ts extensions/todo/package.json
@@ -233,7 +233,7 @@ git commit -m "feat(todo): branch-aware todo state reducer + reconstruction (A1)
 **文件：**
 - 创建：`extensions/todo/index.ts`
 
-- [ ] **步骤 1：实现** `extensions/todo/index.ts`
+- [x] **步骤 1：实现** `extensions/todo/index.ts`
 
 ```ts
 import { StringEnum } from "@earendil-works/pi-ai";
@@ -282,7 +282,7 @@ export default function (pi: ExtensionAPI) {
 
 > 注（已核对官方类型 `types.d.ts`）：`registerTool` 的 `execute` 返回 `{ content, details }`，`details` 随 `tool_execution_end` 事件透传前端。`ctx.sessionManager.getBranch()` 返回 `SessionEntry[]`；本扩展只读 `type`/`message.role`/`message.toolName`/`message.details`，用 `as never` 桥接到纯函数的最小结构类型（bun build 仅 transpile，不做类型检查；逻辑已由任务 1 单测覆盖）。`StringEnum` 从 `@earendil-works/pi-ai` 导入（与官方 `todo.ts` 一致）。
 
-- [ ] **步骤 2：Commit**
+- [x] **步骤 2：Commit**
 
 ```bash
 git add extensions/todo/index.ts
@@ -296,7 +296,7 @@ git commit -m "feat(todo): register todo tool with branch-state reconstruction (
 **文件：**
 - 修改：`extensions/index.ts`
 
-- [ ] **步骤 1：注册 todo**（import 按字母序插入，导出与数组追加在 safety 之后；顺序不影响 todo）
+- [x] **步骤 1：注册 todo**（import 按字母序插入，导出与数组追加在 safety 之后；顺序不影响 todo）
 
 ```ts
 import safety from "./safety/index.js";
@@ -326,12 +326,12 @@ export const allExtensions = [
 
 > 实现前先读 `extensions/index.ts` 当前内容，按其确切 import/export/数组形态对齐（A0 已把 `safety` 放数组首位）。
 
-- [ ] **步骤 2：重建 sidecar**（先确认无 GrenAgent 进程占用 exe）
+- [x] **步骤 2：重建 sidecar**（先确认无 GrenAgent 进程占用 exe）
 
 运行：`cd tauri-agent && node scripts/build-sidecar.mjs`
 预期：末尾打印 `GrenAgent sidecar ready: ...pi-x86_64-pc-windows-msvc.exe`，bun 编译无 "Could not resolve"。
 
-- [ ] **步骤 3：Commit**
+- [x] **步骤 3：Commit**
 
 ```bash
 git add extensions/index.ts
@@ -347,7 +347,7 @@ git commit -m "feat(todo): register todo extension into sidecar bundle (A1)"
 - 修改：`tauri-agent/src/features/tools/extensionCards.tsx`
 - 测试：`tauri-agent/src/features/tools/extensionCards.test.tsx`
 
-- [ ] **步骤 1：toolUtils 加图标** — `toolMeta` 在 extension tools 段加一行，并在顶部 lucide import 增加 `ListChecks`
+- [x] **步骤 1：toolUtils 加图标** — `toolMeta` 在 extension tools 段加一行，并在顶部 lucide import 增加 `ListChecks`
 
 ```ts
 // import 段（与现有 lucide-react import 合并）：增加 ListChecks
@@ -355,7 +355,7 @@ git commit -m "feat(todo): register todo extension into sidecar bundle (A1)"
   if (name === 'todo') return { icon: ListChecks };
 ```
 
-- [ ] **步骤 2：写失败测试** — 在 `extensionCards.test.tsx` 末尾追加（沿用该文件现有 render/getByText 模式）
+- [x] **步骤 2：写失败测试** — 在 `extensionCards.test.tsx` 末尾追加（沿用该文件现有 render/getByText 模式）
 
 ```tsx
 it('renders todo progress and items', () => {
@@ -380,9 +380,9 @@ it('renders todo progress and items', () => {
 
 > 实现前先读 `extensionCards.test.tsx` 顶部，复用其已有的 import（`render`/`screen`、`renderExtensionCard`）。若该文件用了独立 import，则只追加这条 `it(...)`，不要重复 import。
 
-- [ ] **步骤 3：运行确认失败** — `cd tauri-agent && & "node_modules/.bin/vitest.CMD" run src/features/tools/extensionCards.test.tsx` → FAIL（无 card-todo）
+- [x] **步骤 3：运行确认失败** — `cd tauri-agent && & "node_modules/.bin/vitest.CMD" run src/features/tools/extensionCards.test.tsx` → FAIL（无 card-todo）
 
-- [ ] **步骤 4：实现 TodoCard** — `extensionCards.tsx`
+- [x] **步骤 4：实现 TodoCard** — `extensionCards.tsx`
 
 顶部 lucide import 增加 `CheckSquare, ListChecks, Square`。在 `SpeakCard` 之后、`EXTENSION_CARD_RENDERERS` 之前插入：
 
@@ -437,12 +437,12 @@ const EXTENSION_CARD_RENDERERS: Record<string, FC<ExtensionCardProps>> = {
 };
 ```
 
-- [ ] **步骤 5：运行确认通过 + 类型检查**
+- [x] **步骤 5：运行确认通过 + 类型检查**
 
 运行：`cd tauri-agent && & "node_modules/.bin/vitest.CMD" run src/features/tools/extensionCards.test.tsx && & "node_modules/.bin/tsc.CMD" --noEmit`
 预期：测试 PASS，tsc 退出 0
 
-- [ ] **步骤 6：Commit**
+- [x] **步骤 6：Commit**
 
 ```bash
 git add tauri-agent/src/features/tools/toolUtils.ts tauri-agent/src/features/tools/extensionCards.tsx tauri-agent/src/features/tools/extensionCards.test.tsx
