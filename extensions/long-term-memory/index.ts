@@ -55,7 +55,7 @@ export default function (pi: ExtensionAPI) {
       projectStore.load();
     }
     if (!globalStore) {
-      globalPath = process.env.MEMORY_GLOBAL_DB ?? join(homedir(), ".pi", "agent", "memory.db");
+      globalPath = process.env.MEMORY_GLOBAL_DB ?? join(homedir(), ".pi", "agent", "long-term-memory.db");
       globalStore = new MemoryStore(globalPath);
       globalStore.load();
     }

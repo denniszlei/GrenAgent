@@ -17,7 +17,7 @@
 | 自动捕获 | `before_agent_start` 钩子 | 用户说「记住:xxx」/「remember: xxx」时自动存(`MEMORY_AUTO_CAPTURE=0` 关闭) |
 | 自动提取 | `agent_end` 钩子 | 每轮对话后用子 agent 抽取要点存入记忆(`MEMORY_EXTRACT=1` 开启,默认关) |
 
-存储(两级):项目级 `<cwd>/.pi/memory/memory.db` + 全局 `~/.pi/agent/memory.db`(**node:sqlite**,跨重启保留)。记忆**不分块**(每条原子事实),embedding 存 Float32 BLOB,零第三方依赖。
+存储(两级):项目级 `<cwd>/.pi/memory/memory.db` + 全局 `~/.pi/agent/long-term-memory.db`(**node:sqlite**,跨重启保留)。记忆**不分块**(每条原子事实),embedding 存 Float32 BLOB,零第三方依赖。
 
 ## 安装 / 加载
 
@@ -42,7 +42,7 @@ pi install git:github.com/<you>/<repo>
 | `MEMORY_AUTO_INJECT` | `1`(开启) | 设 `0` 关闭自动召回注入 |
 | `MEMORY_AUTO_TOPK` | `5` | 自动注入的记忆条数 |
 | `MEMORY_AUTO_CAPTURE` | `1`(开启) | 设 `0` 关闭「记住:xxx」自动捕获 |
-| `MEMORY_GLOBAL_DB` | `~/.pi/agent/memory.db` | 全局记忆库路径(可自定义) |
+| `MEMORY_GLOBAL_DB` | `~/.pi/agent/long-term-memory.db` | 全局记忆库路径(可自定义) |
 | `MEMORY_EXTRACT` | `0`(关闭) | 设 `1` 开启「对话自动提取」(每轮多一次 LLM 调用) |
 | `PI_BIN` | `pi` | 自动提取用的 pi 可执行(PATH 或绝对路径) |
 
