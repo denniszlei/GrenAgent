@@ -74,6 +74,14 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
       { key: 'SUBAGENT_TIMEOUT_MS', label: '子代理超时(ms)', type: 'number', placeholder: '120000' },
     ],
   },
+  {
+    id: 'safety',
+    title: '安全',
+    fields: [
+      { key: 'SAFETY_BASH_CONFIRM', label: '危险命令前确认（默认开，设 0 关闭）', type: 'boolean' },
+      { key: 'SAFETY_PROTECT_PATHS', label: '保护敏感路径 .env/.git/node_modules/密钥（默认开，设 0 关闭）', type: 'boolean' },
+    ],
+  },
 ];
 
 /** 连接（im-gateway）字段单列，供 ConnectionsPanel 复用同一存储。 */
