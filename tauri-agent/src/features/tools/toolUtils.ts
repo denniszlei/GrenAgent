@@ -1,11 +1,17 @@
 import type { LucideIcon } from 'lucide-react';
 import {
+  BookPlus,
+  Brain,
   FilePen,
   FilePlus,
   FileText,
   Folder,
+  Globe,
+  Image,
+  Network,
   Search,
   Terminal,
+  Volume2,
   Wrench,
 } from 'lucide-react';
 
@@ -55,6 +61,14 @@ export function toolMeta(toolName: string): { icon: LucideIcon } {
   }
   if (name === 'glob' || name === 'grep' || name === 'ripgrep') return { icon: Search };
   if (name === 'ls' || name === 'list_dir') return { icon: Folder };
+  // —— extension tools ——
+  if (name === 'kb_search') return { icon: Search };
+  if (name === 'kb_add') return { icon: BookPlus };
+  if (name === 'memory_save' || name === 'memory_recall') return { icon: Brain };
+  if (name === 'generate_image') return { icon: Image };
+  if (name === 'spawn_agent') return { icon: Network };
+  if (name === 'fetch_url') return { icon: Globe };
+  if (name === 'speak') return { icon: Volume2 };
   return { icon: Wrench };
 }
 
@@ -119,4 +133,11 @@ export function getArgString(args: unknown, key: string): string {
   if (!args || typeof args !== 'object') return '';
   const value = (args as Record<string, unknown>)[key];
   return typeof value === 'string' ? value : value != null ? formatArgValue(value) : '';
+}
+
+export function getDetails(result: unknown): Record<string, unknown> | undefined {
+  if (!result || typeof result !== 'object') return undefined;
+  const details = (result as Record<string, unknown>).details;
+  if (!details || typeof details !== 'object') return undefined;
+  return details as Record<string, unknown>;
 }

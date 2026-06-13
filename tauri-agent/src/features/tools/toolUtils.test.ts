@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   argSummary,
   extractText,
+  getDetails,
   getDiff,
   langByPath,
   toolMeta,
@@ -38,5 +39,24 @@ describe('toolUtils', () => {
   it('langByPath maps extensions', () => {
     expect(langByPath('src/foo.ts')).toBe('typescript');
     expect(langByPath('readme')).toBe('plaintext');
+  });
+});
+
+describe('toolMeta extension icons', () => {
+  it('returns distinct icons for extension tools', () => {
+    for (const name of ['kb_search', 'kb_add', 'memory_save', 'memory_recall', 'generate_image', 'spawn_agent', 'fetch_url', 'speak']) {
+      expect(toolMeta(name).icon).toBeTruthy();
+    }
+  });
+});
+
+describe('getDetails', () => {
+  it('returns the details object when present', () => {
+    expect(getDetails({ content: [], details: { path: '/a.png' } })).toEqual({ path: '/a.png' });
+  });
+  it('returns undefined when missing or invalid', () => {
+    expect(getDetails(null)).toBeUndefined();
+    expect(getDetails('x')).toBeUndefined();
+    expect(getDetails({ content: [] })).toBeUndefined();
   });
 });
