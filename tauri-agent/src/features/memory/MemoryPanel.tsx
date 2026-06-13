@@ -1,5 +1,6 @@
-import { Flexbox } from '@lobehub/ui';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { ActionIcon, Flexbox } from '@lobehub/ui';
+import { Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAgentStoreContext } from '../../stores/AgentStoreContext';
 import { pi, type MemItem, type MemStats } from '../../lib/pi';
 import { ManagerLayout } from '../common/ManagerLayout';
@@ -31,22 +32,19 @@ export function MemoryPanel() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
+  const reload = useCallback(() => {
     setError(null);
     void Promise.all([pi.memStats(workspace), pi.memList(workspace)])
       .then(([s, list]) => {
-        if (!alive) return;
         setStats(s);
         setItems(list);
       })
-      .catch((e) => {
-        if (alive) setError(e instanceof Error ? e.message : String(e));
-      });
-    return () => {
-      alive = false;
-    };
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, [workspace]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
   const filtered = useMemo(
     () => (filter === 'all' ? items : items.filter((m) => m.scope === filter)),
@@ -57,8 +55,24 @@ export function MemoryPanel() {
     [filtered, selectedKey],
   );
 
+  const onClear = useCallback(async () => {
+    const scope = filter === 'all' ? 'all' : filter;
+    const label = scope === 'all' ? '全部' : scope === 'project' ? '项目' : '全局';
+    if (!window.confirm(`确定清空${label}记忆？`)) return;
+    await pi.runCommand(workspace, `/memory clear ${scope}`);
+    setSelectedKey(null);
+    reload();
+  }, [workspace, filter, reload]);
+
+  const onDelete = useCallback(async () => {
+    if (!selected) return;
+    await pi.runCommand(workspace, `/memory forget ${selected.id}`);
+    setSelectedKey(null);
+    reload();
+  }, [workspace, selected, reload]);
+
   const header = (
-    <Flexbox horizontal align="center" gap={12} data-testid="mem-header" style={{ fontSize: 13 }}>
+    <Flexbox horizontal align="center" gap={12} data-testid="mem-header" style={{ fontSize: 13, width: '100%' }}>
       <span>{stats ? `项目 ${stats.project} · 全局 ${stats.global}` : '加载中…'}</span>
       <Flexbox horizontal gap={4}>
         {FILTERS.map((f) => (
@@ -80,6 +94,14 @@ export function MemoryPanel() {
           </button>
         ))}
       </Flexbox>
+      <div style={{ flex: 1 }} />
+      <ActionIcon
+        data-testid="mem-clear"
+        icon={Trash2}
+        size="small"
+        title="清空（按当前筛选）"
+        onClick={() => void onClear()}
+      />
     </Flexbox>
   );
 
@@ -138,6 +160,15 @@ export function MemoryPanel() {
         <span>scope：{selected.scope === 'global' ? '全局' : '项目'}</span>
         <span>category：{selected.category ?? '（无）'}</span>
         <span>时间：{formatTime(selected.createdAt)}</span>
+      </Flexbox>
+      <Flexbox horizontal>
+        <ActionIcon
+          data-testid="mem-delete"
+          icon={Trash2}
+          size="small"
+          title="删除此记忆"
+          onClick={() => void onDelete()}
+        />
       </Flexbox>
     </Flexbox>
   ) : (

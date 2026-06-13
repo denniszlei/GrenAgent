@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { memStats, memList } = vi.hoisted(() => ({
+const { memStats, memList, runCommand } = vi.hoisted(() => ({
   memStats: vi.fn(() => Promise.resolve({ project: 1, global: 1 })),
   memList: vi.fn(() =>
     Promise.resolve([
@@ -9,12 +9,12 @@ const { memStats, memList } = vi.hoisted(() => ({
       { id: 'p1', text: 'project pref', category: 'preference', createdAt: 100, scope: 'project' },
     ]),
   ),
+  runCommand: vi.fn(() => Promise.resolve()),
 }));
-
 vi.mock('../../stores/AgentStoreContext', () => ({
   useAgentStoreContext: () => ({ workspace: '/ws' }),
 }));
-vi.mock('../../lib/pi', () => ({ pi: { memStats, memList } }));
+vi.mock('../../lib/pi', () => ({ pi: { memStats, memList, runCommand } }));
 
 import { MemoryPanel } from './MemoryPanel';
 
@@ -46,5 +46,21 @@ describe('MemoryPanel', () => {
     fireEvent.click(screen.getByTestId('mem-item-project-p1'));
     expect(screen.getByTestId('mem-detail').textContent).toContain('project pref');
     expect(screen.getByTestId('mem-detail').textContent).toContain('preference');
+  });
+
+  it('deletes the selected memory via /memory forget', async () => {
+    render(<MemoryPanel />);
+    await waitFor(() => expect(screen.getByTestId('mem-item-project-p1')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('mem-item-project-p1'));
+    fireEvent.click(screen.getByTestId('mem-delete'));
+    await waitFor(() => expect(runCommand).toHaveBeenCalledWith('/ws', '/memory forget p1'));
+  });
+
+  it('clears memories via /memory clear', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<MemoryPanel />);
+    await waitFor(() => expect(screen.getByTestId('mem-clear')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('mem-clear'));
+    await waitFor(() => expect(runCommand).toHaveBeenCalledWith('/ws', '/memory clear all'));
   });
 });
