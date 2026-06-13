@@ -1,7 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { respond } = vi.hoisted(() => ({ respond: vi.fn(() => Promise.resolve()) }));
+const { respond, setStatus } = vi.hoisted(() => ({
+  respond: vi.fn(() => Promise.resolve()),
+  setStatus: vi.fn(),
+}));
 let emit: (e: unknown) => void = () => {};
 vi.mock('../../lib/pi', () => ({
   onPiUiRequest: (h: (e: unknown) => void) => {
@@ -10,12 +13,16 @@ vi.mock('../../lib/pi', () => ({
   },
   extensionUiRespond: respond,
 }));
+vi.mock('../../stores/planModeStore', () => ({
+  usePlanModeStore: { getState: () => ({ setStatus }) },
+}));
 
 import { ExtensionUiHost } from './ExtensionUiHost';
 
 afterEach(() => {
   cleanup();
   respond.mockClear();
+  setStatus.mockClear();
 });
 
 describe('ExtensionUiHost', () => {
@@ -37,5 +44,12 @@ describe('ExtensionUiHost', () => {
     await waitFor(() =>
       expect(respond).toHaveBeenCalledWith('/ws', { type: 'extension_ui_response', id: 'u2', confirmed: true }),
     );
+  });
+
+  it('routes setStatus(plan-mode) to the store without opening a modal', () => {
+    render(<ExtensionUiHost />);
+    emit({ workspace: '/ws', request: { id: 's1', method: 'setStatus', statusKey: 'plan-mode', statusText: '📋 Plan' } });
+    expect(setStatus).toHaveBeenCalledWith('📋 Plan');
+    expect(screen.queryByText('📋 Plan')).toBeNull();
   });
 });

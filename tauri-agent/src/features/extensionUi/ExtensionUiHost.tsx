@@ -1,6 +1,7 @@
 import { Modal } from '@lobehub/ui';
 import { useEffect, useState } from 'react';
 import { extensionUiRespond, onPiUiRequest, type PiUiRequestEnvelope } from '../../lib/pi';
+import { usePlanModeStore } from '../../stores/planModeStore';
 
 /**
  * Renders extension UI requests (confirm/select) emitted by Pi extensions over
@@ -14,7 +15,19 @@ export function ExtensionUiHost() {
 
   useEffect(() => {
     let un: undefined | (() => void);
-    void onPiUiRequest((e) => setItem(e)).then((fn) => {
+    void onPiUiRequest((e) => {
+      const method = e.request.method;
+      if (method === 'setStatus') {
+        const r = e.request as { statusKey?: unknown; statusText?: unknown };
+        if (r.statusKey === 'plan-mode') {
+          usePlanModeStore.getState().setStatus(typeof r.statusText === 'string' ? r.statusText : undefined);
+        }
+        return;
+      }
+      if (method === 'confirm' || method === 'select' || method === 'input') {
+        setItem(e);
+      }
+    }).then((fn) => {
       un = fn;
     });
     return () => un?.();
