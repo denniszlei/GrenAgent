@@ -153,7 +153,7 @@ export class NoopSandbox implements SandboxAdapter {
 - [ ] **步骤 2：实现 extension** `extensions/safety/index.ts`
 
 ```ts
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ProjectTrustEventResult } from "@earendil-works/pi-coding-agent";
 import { extractPath, isDangerousBash, matchProtectedPath } from "./rules.js";
 
 const off = (v: string | undefined) => v === "0" || v?.toLowerCase() === "false";
@@ -180,15 +180,17 @@ export default function (pi: ExtensionAPI) {
     return undefined;
   });
 
-  pi.on("project_trust", async (_event, ctx) => {
-    if (!ctx.hasUI) return undefined;
-    const ok = await ctx.ui.confirm("项目信任", "信任此工作区并允许写入/执行命令？");
-    return ok ? undefined : { block: true, reason: "用户未信任此项目" };
+  // project_trust 必须返回 { trusted: "yes"|"no"|"undecided" }（官方 ProjectTrustEventResult），不是 block。
+  // ctx 为特化 ProjectTrustContext：仅 cwd/mode/hasUI + ui.{select,confirm,input,notify}。
+  pi.on("project_trust", async (event, ctx): Promise<ProjectTrustEventResult> => {
+    if (!ctx.hasUI) return { trusted: "undecided" };
+    const ok = await ctx.ui.confirm("项目信任", `信任此工作区并允许写入/执行命令？\n${event.cwd}`);
+    return ok ? { trusted: "yes", remember: true } : { trusted: "no" };
   });
 }
 ```
 
-> 注：`project_trust` 返回值语义以官方 `project-trust.ts` 为准（实现时对照 `pi/packages/coding-agent/examples/extensions/project-trust.ts`，若该事件不支持 `block` 返回，则改为 `ctx` 标记信任态并在 `tool_call` 中据此拦截）。
+> 注（已核对官方类型 `types.d.ts`）：`project_trust` handler 必须返回 `ProjectTrustEventResult`（`{ trusted: "yes"|"no"|"undecided"; remember?: boolean }`），**不支持 `{ block }`**。首个返回 `yes`/`no` 的 handler 获胜并抑制内建信任提示，`undecided` 交回内建流程。`ctx` 为特化的 `ProjectTrustContext`（仅 `cwd`/`mode`/`hasUI` + `ui.{select,confirm,input,notify}`）。
 
 - [ ] **步骤 3：Commit**
 
@@ -242,9 +244,17 @@ git commit -m "feat(safety): register safety extension into sidecar bundle (A0)"
 当前 `onPiUiRequest`（`tauri-agent/src/lib/pi.ts`）只定义未消费。补一个 Host 组件渲染 confirm/select 并回传。
 
 **文件：**
+- 修改：`tauri-agent/src/lib/pi.ts`（新增 `extensionUiRespond` 命名导出）
 - 创建：`tauri-agent/src/features/extensionUi/ExtensionUiHost.tsx`
 - 测试：`tauri-agent/src/features/extensionUi/ExtensionUiHost.test.tsx`
 - 修改：`tauri-agent/src/App.tsx`
+
+- [ ] **步骤 0：在 `pi.ts` 增加命名导出**（`pi.respondUi` 已存在，仅补一个语义化包装供 Host/测试 mock 使用）
+
+```ts
+export const extensionUiRespond = (workspace: string, response: Record<string, unknown>) =>
+  pi.respondUi(workspace, response);
+```
 
 - [ ] **步骤 1：写失败测试** `ExtensionUiHost.test.tsx`
 
@@ -252,24 +262,42 @@ git commit -m "feat(safety): register safety extension into sidecar bundle (A0)"
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const respond = vi.fn(() => Promise.resolve());
-let emit: (e: any) => void = () => {};
+const { respond } = vi.hoisted(() => ({ respond: vi.fn(() => Promise.resolve()) }));
+let emit: (e: unknown) => void = () => {};
 vi.mock('../../lib/pi', () => ({
-  onPiUiRequest: (h: (e: any) => void) => { emit = h; return Promise.resolve(() => {}); },
-  extensionUiRespond: (...a: unknown[]) => respond(...a),
+  onPiUiRequest: (h: (e: unknown) => void) => {
+    emit = h;
+    return Promise.resolve(() => {});
+  },
+  extensionUiRespond: respond,
 }));
 
 import { ExtensionUiHost } from './ExtensionUiHost';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  respond.mockClear();
+});
 
 describe('ExtensionUiHost', () => {
-  it('renders a select request and responds with the chosen value', async () => {
+  it('responds to select with { type, id, value }', async () => {
     render(<ExtensionUiHost />);
     emit({ workspace: '/ws', request: { id: 'u1', method: 'select', title: '允许？', options: ['允许', '拒绝'] } });
     await waitFor(() => expect(screen.getByText('允许？')).toBeTruthy());
     fireEvent.click(screen.getByText('拒绝'));
-    await waitFor(() => expect(respond).toHaveBeenCalledWith('/ws', { id: 'u1', value: '拒绝' }));
+    await waitFor(() =>
+      expect(respond).toHaveBeenCalledWith('/ws', { type: 'extension_ui_response', id: 'u1', value: '拒绝' }),
+    );
+  });
+
+  it('responds to confirm with { type, id, confirmed }', async () => {
+    render(<ExtensionUiHost />);
+    emit({ workspace: '/ws', request: { id: 'u2', method: 'confirm', title: '项目信任', message: '信任此工作区？' } });
+    await waitFor(() => expect(screen.getByText('信任此工作区？')).toBeTruthy());
+    fireEvent.click(screen.getByText('确定'));
+    await waitFor(() =>
+      expect(respond).toHaveBeenCalledWith('/ws', { type: 'extension_ui_response', id: 'u2', confirmed: true }),
+    );
   });
 });
 ```
@@ -294,26 +322,32 @@ export function ExtensionUiHost() {
 
   if (!item) return null;
   const { workspace = '.', request } = item;
-  const options: string[] = Array.isArray((request as { options?: string[] }).options)
-    ? (request as { options?: string[] }).options!
-    : ['确定', '取消'];
+  const isConfirm = request.method === 'confirm';
+  const options: string[] = isConfirm
+    ? ['确定', '取消']
+    : Array.isArray(request.options)
+      ? request.options
+      : ['确定', '取消'];
 
-  const answer = (value: string) => {
-    void extensionUiRespond(workspace, { id: request.id, value });
+  // 回传必须带 type:"extension_ui_response"（否则 pi 不会 resolve ctx.ui.* → agent 卡死）。
+  // confirm → confirmed:boolean；select/input → value:string；关闭 → cancelled:true。
+  const send = (payload: Record<string, unknown>) => {
+    void extensionUiRespond(workspace, { type: 'extension_ui_response', id: request.id, ...payload });
     setItem(null);
   };
+  const pick = (opt: string) => send(isConfirm ? { confirmed: opt === '确定' } : { value: opt });
+  const dismiss = () => send(isConfirm ? { confirmed: false } : { cancelled: true });
 
-  const isConfirm = request.method === 'confirm';
+  // confirm 的提示在 message；select/input 的提示在 title（放正文，避免 Modal 标题栏显示多行）。
+  const heading = isConfirm ? request.title ?? '确认' : '请确认操作';
+  const body = isConfirm ? request.message ?? request.title ?? '' : request.title ?? '';
+
   return (
-    <Modal open title={request.title ?? '确认'} footer={null} onCancel={() => answer(isConfirm ? 'false' : options[options.length - 1])}>
-      <div style={{ whiteSpace: 'pre-wrap', marginBottom: 12 }}>{request.title}</div>
+    <Modal footer={null} onCancel={dismiss} open title={heading}>
+      <div style={{ marginBottom: 12, whiteSpace: 'pre-wrap' }}>{body}</div>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        {(isConfirm ? ['确定', '取消'] : options).map((opt, i) => (
-          <button
-            key={opt}
-            data-testid={`ext-ui-opt-${i}`}
-            onClick={() => answer(isConfirm ? (opt === '确定' ? 'true' : 'false') : opt)}
-          >
+        {options.map((opt, i) => (
+          <button data-testid={`ext-ui-opt-${i}`} key={opt} onClick={() => pick(opt)} type="button">
             {opt}
           </button>
         ))}
@@ -323,7 +357,7 @@ export function ExtensionUiHost() {
 }
 ```
 
-> 注：`extensionUiRespond` 的 response 形状以 `pi.ts` 定义为准（实现时核对：`id` + 值字段名是否为 `value`/`choice`/`result`，对齐 `src-tauri` 的 `extension_ui_respond` 解析）。
+> 注（已核对官方 RPC 协议 `rpc-types.ts` + `rpc-mode.ts`）：回传 **必须** 带 `type: "extension_ui_response"`，否则 pi 不会 resolve 对应的 `ctx.ui.*` Promise（agent 卡死）。值字段：`select`/`input`/`editor` → `value: string`；`confirm` → `confirmed: boolean`；取消/超时 → `cancelled: true`。Rust 端 `extension_ui_respond` 把 `response` 原样透传给 sidecar（不解析字段），故形状由前端构造。
 
 - [ ] **步骤 4：挂载到 App** — `tauri-agent/src/App.tsx` 在 `<ThemeBridge />` 同级加 `<ExtensionUiHost />`
 
@@ -394,7 +428,7 @@ git commit -m "feat(safety): settings toggles for safety guards (A0)"
 
 **类型一致性：** `isDangerousBash`/`matchProtectedPath`/`extractPath` 在 rules.ts 定义、index.ts 与测试一致；`extensionUiRespond(workspace, {id, value})` 与测试一致。
 
-**待实现时确认的真实 API（开工第一步读取）：**
-1. `tool_call` 对 write/edit 的 `event.input` 字段名（已用 path/file_path/filePath 兼容）
-2. `project_trust` 事件返回值语义（对照官方 `project-trust.ts`）
-3. `extension_ui_respond` 的 response 字段（对照 `pi.ts` + `src-tauri/src/pi/types.rs`）
+**真实 API 核对结论（2026-06-13 已对照官方类型定义 `types.d.ts` 与示例）：**
+1. ✅ `tool_call`：`ToolCallEvent` 按 `toolName` 联合；write/edit 路径字段为 `event.input.path`（官方 `protected-paths.ts` 实证），bash 为 `event.input.command`。`extractPath` 的 `path ?? file_path ?? filePath` 兼容写法安全。拦截用 `return { block:true, reason }`（`ToolCallEventResult`）。
+2. ✅ `project_trust`：返回 `ProjectTrustEventResult`（`{ trusted:"yes"|"no"|"undecided"; remember? }`），**非** `{ block }`。已修正任务 2。
+3. ✅ `extension_ui_response`（`rpc-types.ts` / `rpc-mode.ts`）：回传必须带 `type:"extension_ui_response"`；`select/input/editor`→`value`，`confirm`→`confirmed`，取消→`cancelled:true`。前端新增 `extensionUiRespond` 导出。已修正任务 4。
