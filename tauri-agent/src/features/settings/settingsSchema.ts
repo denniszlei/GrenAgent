@@ -72,6 +72,7 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
       { key: 'FETCH_MAX_CHARS', label: '抓取最大字符', type: 'number', placeholder: '20000' },
       { key: 'FETCH_TIMEOUT_MS', label: '抓取超时(ms)', type: 'number', placeholder: '15000' },
       { key: 'SUBAGENT_TIMEOUT_MS', label: '子代理超时(ms)', type: 'number', placeholder: '120000' },
+      { key: 'PI_BIN', label: '子代理可执行文件（留空＝复用本体）', type: 'text', placeholder: '默认：sidecar 自身' },
     ],
   },
   {
