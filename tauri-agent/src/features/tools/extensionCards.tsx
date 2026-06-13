@@ -210,6 +210,37 @@ const TodoCard: FC<ExtensionCardProps> = ({ result }) => {
   );
 };
 
+const WebSearchCard: FC<ExtensionCardProps> = ({ result }) => {
+  const d = getDetails(result);
+  const provider = asString(d?.provider);
+  const results = Array.isArray(d?.results)
+    ? (d!.results as Array<{ title?: unknown; url?: unknown; snippet?: unknown }>)
+    : [];
+  const text = extractText(result);
+  return (
+    <Flexbox gap={6} data-testid="card-web_search">
+      <Flexbox horizontal align="center" gap={6}>
+        <Icon icon={Search} size={14} />
+        <span style={{ fontSize: 12 }}>
+          {results.length} 条结果{provider ? ` · ${provider}` : ''}
+        </span>
+      </Flexbox>
+      {results.length > 0 ? (
+        <Flexbox gap={4}>
+          {results.map((r, i) => (
+            <Flexbox gap={1} key={i}>
+              <span style={{ fontSize: 12 }}>{asString(r.title) || asString(r.url)}</span>
+              <span style={labelStyle}>{asString(r.url)}</span>
+            </Flexbox>
+          ))}
+        </Flexbox>
+      ) : text ? (
+        <LazyMarkdown>{text}</LazyMarkdown>
+      ) : null}
+    </Flexbox>
+  );
+};
+
 const EXTENSION_CARD_RENDERERS: Record<string, FC<ExtensionCardProps>> = {
   kb_search: KbSearchCard,
   kb_add: KbAddCard,
@@ -218,6 +249,7 @@ const EXTENSION_CARD_RENDERERS: Record<string, FC<ExtensionCardProps>> = {
   generate_image: GenerateImageCard,
   spawn_agent: SpawnAgentCard,
   fetch_url: FetchUrlCard,
+  web_search: WebSearchCard,
   speak: SpeakCard,
   todo: TodoCard,
 };

@@ -83,4 +83,22 @@ describe('renderExtensionCard', () => {
     expect(screen.getByText(/write tests/)).toBeTruthy();
     expect(screen.getByText(/ship it/)).toBeTruthy();
   });
+
+  it('web_search shows result count and links', () => {
+    renderCard('web_search', {
+      content: [{ type: 'text', text: 'summary' }],
+      details: {
+        provider: 'tavily',
+        query: 'pi',
+        count: 2,
+        results: [
+          { title: 'Result One', url: 'https://one.dev', snippet: 's1' },
+          { title: 'Result Two', url: 'https://two.dev', snippet: 's2' },
+        ],
+      },
+    });
+    expect(screen.getByTestId('card-web_search')).toBeTruthy();
+    expect(screen.getByText('https://one.dev')).toBeTruthy();
+    expect(screen.getByText(/Result Two/)).toBeTruthy();
+  });
 });
