@@ -1,8 +1,11 @@
-import { Collapse, Flexbox, Highlighter, Icon } from '@lobehub/ui';
+import { Collapse, Flexbox, Icon } from '@lobehub/ui';
 import { ChevronRight } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { ErrorBoundary } from '../../components/ErrorBoundary';
+import { LazyHighlighter } from './LazyHighlighter';
 import { useCardStyles } from './cardStyles';
 import { StatusIndicator } from './StatusIndicator';
+import { renderExtensionCard } from './extensionCards';
 import {
   argSummary,
   extractText,
@@ -72,6 +75,10 @@ function ToolDetail({
   status: ToolExecutionProps['status'];
 }) {
   const { styles } = useCardStyles();
+  const extensionCard = renderExtensionCard({ toolName, args, result, status });
+  if (extensionCard) {
+    return <ErrorBoundary>{extensionCard}</ErrorBoundary>;
+  }
   const name = toolName.toLowerCase();
   const text = extractText(result);
   const diff = getDiff(result);
@@ -82,9 +89,9 @@ function ToolDetail({
     return (
       <Flexbox gap={8}>
         {command && (
-          <Highlighter language="bash" copyable variant="borderless" style={{ maxHeight: 200 }}>
+          <LazyHighlighter language="bash" copyable variant="borderless" style={{ maxHeight: 200 }}>
             {command}
-          </Highlighter>
+          </LazyHighlighter>
         )}
         <TerminalOutput text={text} isError={isError} />
       </Flexbox>
@@ -102,9 +109,9 @@ function ToolDetail({
           </div>
         )}
         {text ? (
-          <Highlighter language={lang} copyable style={{ maxHeight: 320 }}>
+          <LazyHighlighter language={lang} copyable style={{ maxHeight: 320 }}>
             {text}
-          </Highlighter>
+          </LazyHighlighter>
         ) : (
           <TerminalOutput text={stringifyJson(result)} isError={isError} />
         )}
@@ -124,9 +131,9 @@ function ToolDetail({
           </div>
         )}
         {content && (
-          <Highlighter language={lang} copyable style={{ maxHeight: 320 }}>
+          <LazyHighlighter language={lang} copyable style={{ maxHeight: 320 }}>
             {content}
-          </Highlighter>
+          </LazyHighlighter>
         )}
       </Flexbox>
     );
@@ -142,9 +149,9 @@ function ToolDetail({
               {path}
             </div>
           )}
-          <Highlighter language="diff" copyable style={{ maxHeight: 320 }}>
+          <LazyHighlighter language="diff" copyable style={{ maxHeight: 320 }}>
             {diff}
-          </Highlighter>
+          </LazyHighlighter>
         </Flexbox>
       );
     }
@@ -158,14 +165,14 @@ function ToolDetail({
           </div>
         )}
         {oldText && (
-          <Highlighter language="diff" copyable style={{ maxHeight: 160 }}>
+          <LazyHighlighter language="diff" copyable style={{ maxHeight: 160 }}>
             {`- ${oldText}`}
-          </Highlighter>
+          </LazyHighlighter>
         )}
         {newText && (
-          <Highlighter language="diff" copyable style={{ maxHeight: 160 }}>
+          <LazyHighlighter language="diff" copyable style={{ maxHeight: 160 }}>
             {`+ ${newText}`}
-          </Highlighter>
+          </LazyHighlighter>
         )}
         {!oldText && !newText && <TerminalOutput text={text || stringifyJson(result)} isError={isError} />}
       </Flexbox>
@@ -183,14 +190,15 @@ function ToolDetail({
   const json = stringifyJson(result);
   if (!json) return null;
   return (
-    <Highlighter language="json" copyable style={{ maxHeight: 300 }}>
+    <LazyHighlighter language="json" copyable style={{ maxHeight: 300 }}>
       {json}
-    </Highlighter>
+    </LazyHighlighter>
   );
 }
 
 export function ToolExecution({ toolName, args, result, status }: ToolExecutionProps) {
   const { styles } = useCardStyles();
+  const [expanded, setExpanded] = useState(status === 'running');
   const hasDetail = useMemo(() => {
     if (status === 'running') return true;
     return Boolean(extractText(result) || getDiff(result) || stringifyJson(result));
@@ -209,11 +217,18 @@ export function ToolExecution({ toolName, args, result, status }: ToolExecutionP
       <Collapse
         variant="outlined"
         gap={4}
+        activeKey={expanded ? ['tool'] : []}
+        onChange={(keys) => {
+          const arr = Array.isArray(keys) ? keys : [keys];
+          setExpanded(arr.includes('tool'));
+        }}
         items={[
           {
             key: 'tool',
             label: <ToolInspector toolName={toolName} args={args} status={status} />,
-            children: <ToolDetail toolName={toolName} args={args} result={result} status={status} />,
+            children: expanded ? (
+              <ToolDetail toolName={toolName} args={args} result={result} status={status} />
+            ) : null,
           },
         ]}
       />
