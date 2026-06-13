@@ -13,6 +13,7 @@ import safety from "./safety/index.js";
 import todo from "./todo/index.js";
 import tts from "./tts/index.js";
 import webFetch from "./web-fetch/index.js";
+import webSearch from "./web-search/index.js";
 
 export {
   safety,
@@ -21,6 +22,7 @@ export {
   knowledgeRag,
   longTermMemory,
   webFetch,
+  webSearch,
   imageGen,
   codeReview,
   multiAgent,
@@ -36,6 +38,7 @@ export const allExtensions = [
   knowledgeRag,
   longTermMemory,
   webFetch,
+  webSearch,
   imageGen,
   codeReview,
   multiAgent,
