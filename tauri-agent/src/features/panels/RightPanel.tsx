@@ -2,6 +2,7 @@ import { ActionIcon, Flexbox, Icon } from '@lobehub/ui';
 import { createStaticStyles, cssVar, cx } from 'antd-style';
 import { Globe, PanelRightClose, X } from 'lucide-react';
 
+import { HEADER_HEIGHT } from '../../components/PanelHeader';
 import { useAgentStore } from '../../stores/AgentStoreContext';
 import type { ChatMessage } from '../../stores/agentReducer';
 import { useRightPanelStore, type PageView } from '../../stores/rightPanelStore';
@@ -21,7 +22,8 @@ const styles = createStaticStyles(({ css }) => ({
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 4px 8px;
+    height: ${HEADER_HEIGHT}px;
+    padding: 0 8px;
     border-block-end: 1px solid ${cssVar.colorBorderSecondary};
     background: ${cssVar.colorBgElevated};
   `,

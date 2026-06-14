@@ -1,21 +1,22 @@
 import { Flexbox } from '@lobehub/ui';
-import { createStyles } from 'antd-style';
+import { createStaticStyles, cssVar } from 'antd-style';
 import type { ReactNode } from 'react';
 
-/** 所有面板顶部 header 的统一高度，与 @lobehub/ui <Header> 默认值对齐。 */
-export const HEADER_HEIGHT = 64;
+/** 所有列顶部 header 的统一高度（侧栏/主列/右栏/终端共用，保证各列顶部对齐）。 */
+export const HEADER_HEIGHT = 44;
 
-const useStyles = createStyles(({ token, css }) => ({
+const styles = createStaticStyles(({ css }) => ({
   bar: css`
     flex: 0 0 auto;
     height: ${HEADER_HEIGHT}px;
     padding-inline: 12px;
-    border-block-end: 1px solid ${token.colorBorderSecondary};
+    border-block-end: 1px solid ${cssVar.colorBorderSecondary};
+    background: ${cssVar.colorBgElevated};
   `,
   title: css`
     font-size: 14px;
     font-weight: 600;
-    color: ${token.colorText};
+    color: ${cssVar.colorText};
   `,
 }));
 
@@ -30,8 +31,6 @@ interface PanelHeaderProps {
 
 /** 左栏/主列/右栏共用的面板头部：统一高度、内边距、底边框与图标间距。 */
 export function PanelHeader({ left, title, actions }: PanelHeaderProps) {
-  const { styles } = useStyles();
-
   return (
     <Flexbox horizontal align="center" distribution="space-between" className={styles.bar}>
       <Flexbox horizontal align="center" gap={8}>
