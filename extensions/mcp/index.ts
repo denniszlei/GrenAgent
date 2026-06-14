@@ -1,8 +1,12 @@
 // mcp: connect external MCP servers (stdio / SSE) and expose their tools to the
 // agent as `mcp__<server>__<tool>`. Connections live for the sidecar process.
 //
-// The extension factory is async: pi awaits it, so all servers are connected and
-// their tools registered before the agent starts (no runtime dynamic registration).
+// Loading is ASYNC: the factory returns immediately and connections run in the
+// background (started on the first session_start, so the runtime is bound and the
+// UI is up). Each server connects in parallel; on success its tools are registered
+// dynamically (pi.registerTool internally refreshes the tool registry) and then
+// activated via setActiveTools. Status (connecting → connected/failed) is pushed
+// live to the GUI. This keeps app startup instant instead of blocking on MCP.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -40,22 +44,36 @@ async function connect(s: McpServerConfig): Promise<Client> {
   return client;
 }
 
-export default async function (pi: ExtensionAPI) {
+type McpStatus = "connecting" | "connected" | "failed";
+
+export default function (pi: ExtensionAPI) {
   const servers = parseMcpServers(process.env.MCP_SERVERS ?? "");
   if (servers.length === 0) return;
 
   const clients: Client[] = [];
-  const registry = new Map<string, { status: "connected" | "failed"; tools: number; error?: string }>();
+  const registry = new Map<string, { status: McpStatus; tools: number; error?: string }>();
+  for (const s of servers) registry.set(s.name, { status: "connecting", tools: 0 });
 
-  for (const s of servers) {
+  // Bound to the latest session_start ctx.ui so background connects can push live status.
+  let pushStatus: (() => void) | undefined;
+  const summary = () =>
+    servers.map((s) => ({
+      name: s.name,
+      transport: s.transport,
+      status: registry.get(s.name)?.status ?? "failed",
+      tools: registry.get(s.name)?.tools ?? 0,
+    }));
+
+  const connectServer = async (s: McpServerConfig): Promise<void> => {
     try {
       const client = await connect(s);
       clients.push(client);
       const { tools } = await withTimeout(client.listTools(), MCP_TIMEOUT_MS);
-      registry.set(s.name, { status: "connected", tools: tools.length });
+      const newNames: string[] = [];
       for (const t of tools) {
+        const name = `mcp__${sanitize(s.name)}__${sanitize(t.name)}`;
         pi.registerTool({
-          name: `mcp__${sanitize(s.name)}__${sanitize(t.name)}`,
+          name,
           label: `${s.name}: ${t.name}`,
           description: t.description ?? `MCP tool "${t.name}" from server "${s.name}".`,
           parameters: Type.Unsafe(t.inputSchema ?? { type: "object" }),
@@ -73,26 +91,45 @@ export default async function (pi: ExtensionAPI) {
             return { content: [{ type: "text", text }], details: { server: s.name, tool: t.name } };
           },
         });
+        newNames.push(name);
       }
+      // registerTool() refreshed the tool registry; now activate the new tools so
+      // the agent can call them this turn (matches the old sync behavior).
+      if (newNames.length) {
+        try {
+          const active = pi.getActiveTools();
+          pi.setActiveTools([...new Set([...active, ...newNames])]);
+        } catch {
+          // Active-tool plumbing not ready yet; tools stay registered and become callable later.
+        }
+      }
+      registry.set(s.name, { status: "connected", tools: tools.length });
       console.error(`[mcp] connected "${s.name}" (${s.transport}); ${tools.length} tools registered`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       registry.set(s.name, { status: "failed", tools: 0, error: msg });
       console.error(`[mcp] failed to connect "${s.name}": ${msg}`);
     }
-  }
+    pushStatus?.();
+  };
 
-  // Push connection status to the GUI (ConnectionsPanel) via setStatus, sent on
-  // each session_start so a freshly-mounted front-end picks up current status.
+  // Push status on every session_start (a freshly-mounted front-end picks up current
+  // status), and kick off the background connect exactly once (after the first bind).
+  let started = false;
   pi.on("session_start", async (_event, ctx) => {
-    if (!ctx.hasUI) return;
-    const summary = servers.map((s) => ({
-      name: s.name,
-      transport: s.transport,
-      status: registry.get(s.name)?.status ?? "failed",
-      tools: registry.get(s.name)?.tools ?? 0,
-    }));
-    ctx.ui.setStatus("mcp", JSON.stringify(summary));
+    if (ctx.hasUI) {
+      pushStatus = () => {
+        try {
+          ctx.ui.setStatus("mcp", JSON.stringify(summary()));
+        } catch {
+          // Stale ctx after session replacement; the next session_start rebinds pushStatus.
+        }
+      };
+      pushStatus();
+    }
+    if (started) return;
+    started = true;
+    void Promise.all(servers.map(connectServer));
   });
 
   const cleanup = () => {

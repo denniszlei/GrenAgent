@@ -3,7 +3,7 @@ import { create } from 'zustand';
 export interface McpServerStatus {
   name: string;
   transport: string;
-  status: 'connected' | 'failed';
+  status: 'connecting' | 'connected' | 'failed';
   tools: number;
 }
 

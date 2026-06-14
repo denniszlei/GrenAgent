@@ -123,8 +123,22 @@ export function ExtensionsPanel() {
                 <span style={{ fontSize: 12, flex: 1 }}>{s.name}</span>
                 <span style={{ fontSize: 11, color: muted }}>{s.transport}</span>
                 {live ? (
-                  <span style={{ fontSize: 11, color: live.status === 'connected' ? '#4ade80' : '#f87171' }}>
-                    {live.status === 'connected' ? `● ${live.tools} 工具` : '○ 失败'}
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color:
+                        live.status === 'connected'
+                          ? '#4ade80'
+                          : live.status === 'connecting'
+                            ? '#fbbf24'
+                            : '#f87171',
+                    }}
+                  >
+                    {live.status === 'connected'
+                      ? `● ${live.tools} 工具`
+                      : live.status === 'connecting'
+                        ? '◌ 连接中…'
+                        : '○ 失败'}
                   </span>
                 ) : (
                   <span style={{ fontSize: 11, color: muted }}>待连接</span>
