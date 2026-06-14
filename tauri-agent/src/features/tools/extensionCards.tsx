@@ -16,7 +16,7 @@ import {
 import type { CSSProperties, FC, ReactNode } from 'react';
 import { LazyMarkdown } from '../chat/LazyMarkdown';
 import { useCardStyles } from './cardStyles';
-import { useRightPanelStore } from '../../stores/rightPanelStore';
+import { useDockStore } from '../../stores/dockStore';
 import { extractText, getDetails } from './toolUtils';
 
 export interface ExtensionCardProps {
@@ -150,7 +150,7 @@ const SpawnAgentCard: FC<ExtensionCardProps> = ({ result }) => {
 // 不把整页正文灌进对话流（全文仍在工具结果里给模型）。
 const FetchUrlCard: FC<ExtensionCardProps> = ({ result }) => {
   const { styles } = useCardStyles();
-  const openPage = useRightPanelStore((s) => s.openPage);
+  const openPage = useDockStore((s) => s.openPage);
   const d = getDetails(result);
   const url = asString(d?.url);
   const crawler = asString(d?.crawler);

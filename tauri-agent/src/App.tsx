@@ -1,12 +1,13 @@
-import { useCallback, useEffect, memo } from 'react';
+import { useCallback, useEffect, useRef, memo } from 'react';
 import { ThemeProvider, Flexbox } from '@lobehub/ui';
 import { ThemeBridge } from './components/ThemeBridge';
 import { ExtensionUiHost } from './features/extensionUi/ExtensionUiHost';
 import { useThemeStore } from './stores/themeStore';
 import { ChatView } from './features/chat/ChatView';
 import { Sidebar } from './features/sessions/Sidebar';
-import { RightPanel } from './features/panels';
-import { TerminalPanel } from './features/terminal/TerminalPanel';
+import { DockPanel } from './features/dock/DockPanel';
+import { DockDndProvider } from './features/dock/DockDndProvider';
+import { useDockStore } from './stores/dockStore';
 import { Titlebar } from './components/Titlebar';
 import { AgentStoreProvider, useAgentStoreContext } from './stores/AgentStoreContext';
 import { useSessionStore } from './store';
@@ -159,7 +160,7 @@ const RightPanelColumn = memo(function RightPanelColumn() {
 
   return (
     <RightPanelShell>
-      <RightPanel onCollapse={toggleRightPanel} />
+      <DockPanel region="right" onCollapse={toggleRightPanel} />
     </RightPanelShell>
   );
 });
@@ -167,7 +168,7 @@ const RightPanelColumn = memo(function RightPanelColumn() {
 const TerminalColumn = memo(function TerminalColumn() {
   return (
     <TerminalShell>
-      <TerminalPanel />
+      <DockPanel region="bottom" />
     </TerminalShell>
   );
 });
@@ -176,6 +177,21 @@ function Workspace() {
   const { store, workspace, setWorkspaceReady, workspaceReady } = useAgentStoreContext();
   const isStreaming = store.useStore((s) => s.isStreaming);
   const activeSessionPath = useSessionStore((s) => s.activeSessionPath);
+  const messages = store.useStore((s) => s.messages);
+  const prevWorkspaceRef = useRef(workspace);
+
+  // 主对话的 spawn_agent 变化时，统一在此处把 subagent tab 与 messages 对齐（单点，避免多坞重复 sync）。
+  useEffect(() => {
+    useDockStore.getState().syncSubAgentTabs(messages);
+  }, [messages]);
+
+  // 切换工作区：dispose 旧终端（TerminalBody 卸载会停 shell）、终端重置为 1 个 idle，page 结构保留。
+  useEffect(() => {
+    if (prevWorkspaceRef.current !== workspace) {
+      prevWorkspaceRef.current = workspace;
+      useDockStore.getState().resetWorkspaceTabs();
+    }
+  }, [workspace]);
 
   // 首屏先渲染 UI 骨架；openWorkspace 完成后并行加载会话与消息，全量会话后台刷新。
   useEffect(() => {
@@ -414,11 +430,13 @@ function Workspace() {
                   onSubmitRename={handleSubmitRename}
                 />
                 <Flexbox flex={1} style={{ minWidth: 0, height: '100%' }}>
-                  <Flexbox horizontal flex={1} style={{ minHeight: 0 }}>
-                    <MainChatColumn />
-                    <RightPanelColumn />
-                  </Flexbox>
-                  <TerminalColumn />
+                  <DockDndProvider>
+                    <Flexbox horizontal flex={1} style={{ minHeight: 0 }}>
+                      <MainChatColumn />
+                      <RightPanelColumn />
+                    </Flexbox>
+                    <TerminalColumn />
+                  </DockDndProvider>
                 </Flexbox>
               </Flexbox>
             }

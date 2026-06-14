@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { openPath } from '@tauri-apps/plugin-opener';
 import { LazyMarkdown } from '../chat/LazyMarkdown';
 import { LazyHighlighter } from '../tools/LazyHighlighter';
-import type { PageView } from '../../stores/rightPanelStore';
+import type { PageView } from '../../stores/dockStore';
 
 const styles = createStaticStyles(({ css }) => ({
   url: css`
