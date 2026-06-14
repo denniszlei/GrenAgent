@@ -181,6 +181,10 @@ function Workspace() {
   useEffect(() => {
     let alive = true;
     const perf = createStartupPerf(workspace);
+    // 兜底：openWorkspace 异常或挂起时，最多 12s 后强制结束加载，避免永久停在加载页。
+    const readyGuard = setTimeout(() => {
+      if (alive) setWorkspaceReady(true);
+    }, 12000);
 
     void (async () => {
       if (!workspace) {
@@ -224,7 +228,9 @@ function Workspace() {
         perf.end('getMessages');
       } catch (err) {
         useSessionStore.getState().setError(err instanceof Error ? err.message : String(err));
+        if (alive) setWorkspaceReady(true); // 失败也结束加载，显示界面与错误，避免永久 loading
       } finally {
+        clearTimeout(readyGuard);
         useSessionStore.getState().setLoading(false);
         perf.report();
       }
@@ -235,6 +241,7 @@ function Workspace() {
 
     return () => {
       alive = false;
+      clearTimeout(readyGuard);
       setWorkspaceReady(false);
     };
   }, [store, workspace, setWorkspaceReady]);
