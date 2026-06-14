@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { createAgentStore, type AgentStoreApi } from './agent';
+import type { AgentStoreApi } from './agent';
+import { agentStoreRegistry } from './agentStoreRegistry';
 
 interface AgentStoreContextValue {
   workspace: string;
@@ -16,11 +17,12 @@ interface AgentStoreProviderProps {
 }
 
 /**
- * 为某个工作区创建并提供 agent store。
- * workspace 变化时重建 store（旧 store 自动 destroy 取消订阅）。
+ * 为某个工作区提供 agent store。
+ * store 由 agentStoreRegistry 常驻管理：切换 workspace 不再 destroy（后台继续消费事件、保留流式态），
+ * 仅切换 active 标志（active 用 rAF 实时刷新、后台用 setTimeout 兜底）。
  */
 export function AgentStoreProvider({ workspace, children }: AgentStoreProviderProps) {
-  const store = useMemo(() => createAgentStore(workspace), [workspace]);
+  const store = useMemo(() => agentStoreRegistry.getOrCreate(workspace), [workspace]);
   const [workspaceReady, setWorkspaceReady] = useState(false);
 
   useEffect(() => {
@@ -28,8 +30,8 @@ export function AgentStoreProvider({ workspace, children }: AgentStoreProviderPr
   }, [workspace]);
 
   useEffect(() => {
-    return () => store.destroy();
-  }, [store]);
+    agentStoreRegistry.setActive(workspace);
+  }, [workspace]);
 
   const value = useMemo(
     () => ({ workspace, store, workspaceReady, setWorkspaceReady }),

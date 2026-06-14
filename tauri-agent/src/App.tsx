@@ -10,6 +10,7 @@ import { DockDndProvider } from './features/dock/DockDndProvider';
 import { useDockStore } from './stores/dockStore';
 import { Titlebar } from './components/Titlebar';
 import { AgentStoreProvider, useAgentStoreContext } from './stores/AgentStoreContext';
+import { agentStoreRegistry } from './stores/agentStoreRegistry';
 import { useSessionStore } from './store';
 import { useLayoutStore } from './stores/layoutStore';
 import { MainColumnHeader } from './features/layout/MainColumnHeader';
@@ -477,7 +478,8 @@ export default function App() {
       if (ws) useSessionStore.getState().setActiveWorkspace(ws);
     })();
     return () => {
-      void pi.closeWorkspace(useSessionStore.getState().activeWorkspace);
+      // store 由 registry 常驻；卸载时统一取消所有订阅（后端进程由窗口关闭事件 close_all 兜底）。
+      agentStoreRegistry.destroyAll();
     };
   }, []);
 
