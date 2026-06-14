@@ -2,6 +2,7 @@
 // into a branded CLI via DefaultResourceLoader's `extensionFactories` option
 // (no -e / no pi install needed — they're compiled into the product).
 
+import checkpoint from "./checkpoint/index.js";
 import codeReview from "./code-review/index.js";
 import imGateway from "./im-gateway/index.js";
 import imageGen from "./image-gen/index.js";
@@ -18,6 +19,7 @@ import webSearch from "./web-search/index.js";
 
 export {
   safety,
+  checkpoint,
   todo,
   planMode,
   knowledgeRag,
@@ -35,6 +37,7 @@ export {
 // Order roughly by general usefulness; safety first so guardrails intercept earliest.
 export const allExtensions = [
   safety,
+  checkpoint,
   todo,
   planMode,
   knowledgeRag,
