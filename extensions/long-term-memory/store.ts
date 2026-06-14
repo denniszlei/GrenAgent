@@ -2,7 +2,7 @@
 // (preference / decision / convention / fact) — unlike knowledge-rag, memories
 // are NOT chunked. Dedup is by text hash so saving the same fact is idempotent.
 
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "../_shared/sqlite.js";
@@ -19,6 +19,22 @@ export interface Memory {
 export interface MemoryHit {
   memory: Memory;
   score: number;
+}
+
+export type HistoryOp = "ADD" | "UPDATE" | "DELETE" | "ROLLBACK";
+
+export interface HistoryRow {
+  historyId: number;
+  memoryId: string;
+  op: HistoryOp;
+  oldText: string | null;
+  newText: string | null;
+  oldCategory: string | null;
+  newCategory: string | null;
+  reason: string | null;
+  model: string | null;
+  version: number;
+  createdAt: number;
 }
 
 function cosine(a: number[], b: number[]): number {
@@ -87,8 +103,33 @@ export class MemoryStore {
          createdAt INTEGER NOT NULL,
          embedding BLOB
        );
-       CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(createdAt);`,
+       CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(createdAt);
+       CREATE TABLE IF NOT EXISTS memory_history (
+         historyId INTEGER PRIMARY KEY AUTOINCREMENT,
+         memoryId TEXT NOT NULL,
+         op TEXT NOT NULL,
+         oldText TEXT, newText TEXT, oldCategory TEXT, newCategory TEXT,
+         reason TEXT, model TEXT,
+         version INTEGER NOT NULL,
+         createdAt INTEGER NOT NULL
+       );
+       CREATE INDEX IF NOT EXISTS idx_history_memory ON memory_history(memoryId, historyId);`,
     );
+    this.migrate();
+  }
+
+  /** Backfill new columns on a legacy `memories` table without data loss. */
+  private migrate(): void {
+    const cols = this.database.prepare("PRAGMA table_info(memories)").all() as Array<{ name: string }>;
+    const has = (c: string) => cols.some((x) => x.name === c);
+    if (!has("updatedAt")) {
+      this.database.exec("ALTER TABLE memories ADD COLUMN updatedAt INTEGER");
+      this.database.exec("UPDATE memories SET updatedAt = createdAt WHERE updatedAt IS NULL");
+    }
+    if (!has("version")) {
+      this.database.exec("ALTER TABLE memories ADD COLUMN version INTEGER");
+      this.database.exec("UPDATE memories SET version = 1 WHERE version IS NULL");
+    }
   }
 
   close(): void {
@@ -131,7 +172,207 @@ export class MemoryStore {
     }));
   }
 
-  // Idempotent: same text -> same id -> replaces (keeps newest category/embedding).
+  private genId(): string {
+    return randomBytes(6).toString("hex");
+  }
+
+  private currentVersion(id: string): number {
+    const r = this.database.prepare("SELECT version FROM memories WHERE id = ?").get(id) as { version: number } | undefined;
+    return r?.version ?? 0;
+  }
+
+  private recordHistory(row: Omit<HistoryRow, "historyId">): void {
+    this.database
+      .prepare(
+        `INSERT INTO memory_history(memoryId, op, oldText, newText, oldCategory, newCategory, reason, model, version, createdAt)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        row.memoryId,
+        row.op,
+        row.oldText,
+        row.newText,
+        row.oldCategory,
+        row.newCategory,
+        row.reason,
+        row.model,
+        row.version,
+        row.createdAt,
+      );
+  }
+
+  getById(id: string): Memory | undefined {
+    const r = this.database
+      .prepare("SELECT id, text, category, createdAt, embedding FROM memories WHERE id = ?")
+      .get(id) as MemoryRow | undefined;
+    if (!r) return undefined;
+    return { id: r.id, text: r.text, category: r.category, createdAt: r.createdAt, embedding: decodeEmbedding(r.embedding) };
+  }
+
+  // Smart-path add: stable (content-independent) id so UPDATE can change text
+  // while keeping the same id; records an ADD history entry.
+  async insert(
+    text: string,
+    category: string | null,
+    config: EmbeddingConfig,
+    reason: string,
+    model?: string | null,
+    signal?: AbortSignal,
+  ): Promise<{ id: string }> {
+    const clean = text.trim();
+    const id = this.genId();
+    let embedding: number[] | undefined;
+    if (config.enabled) [embedding] = await embedTexts([clean], config, signal);
+    const now = Date.now();
+    this.database
+      .prepare("INSERT INTO memories(id, text, category, createdAt, updatedAt, version, embedding) VALUES(?, ?, ?, ?, ?, ?, ?)")
+      .run(id, clean, category, now, now, 1, encodeEmbedding(embedding));
+    this.recordHistory({
+      memoryId: id,
+      op: "ADD",
+      oldText: null,
+      newText: clean,
+      oldCategory: null,
+      newCategory: category,
+      reason,
+      model: model ?? null,
+      version: 1,
+      createdAt: now,
+    });
+    return { id };
+  }
+
+  async update(
+    id: string,
+    fields: { text?: string; category?: string | null },
+    config: EmbeddingConfig,
+    reason: string,
+    model?: string | null,
+    signal?: AbortSignal,
+  ): Promise<{ version: number } | undefined> {
+    const cur = this.getById(id);
+    if (!cur) return undefined;
+    const newText = (fields.text ?? cur.text).trim();
+    const newCategory = fields.category === undefined ? cur.category : fields.category;
+    const version = this.currentVersion(id) + 1;
+    const now = Date.now();
+    let embedding = cur.embedding;
+    if (config.enabled && newText !== cur.text) [embedding] = await embedTexts([newText], config, signal);
+    this.database
+      .prepare("UPDATE memories SET text = ?, category = ?, updatedAt = ?, version = ?, embedding = ? WHERE id = ?")
+      .run(newText, newCategory, now, version, encodeEmbedding(embedding), id);
+    this.recordHistory({
+      memoryId: id,
+      op: "UPDATE",
+      oldText: cur.text,
+      newText,
+      oldCategory: cur.category,
+      newCategory,
+      reason,
+      model: model ?? null,
+      version,
+      createdAt: now,
+    });
+    return { version };
+  }
+
+  remove(id: string, reason: string, model?: string | null): boolean {
+    const cur = this.getById(id);
+    if (!cur) return false;
+    const version = this.currentVersion(id) + 1;
+    const now = Date.now();
+    this.database.prepare("DELETE FROM memories WHERE id = ?").run(id);
+    this.recordHistory({
+      memoryId: id,
+      op: "DELETE",
+      oldText: cur.text,
+      newText: null,
+      oldCategory: cur.category,
+      newCategory: null,
+      reason,
+      model: model ?? null,
+      version,
+      createdAt: now,
+    });
+    return true;
+  }
+
+  history(memoryId?: string, limit = 200): HistoryRow[] {
+    const rows = memoryId
+      ? this.database.prepare("SELECT * FROM memory_history WHERE memoryId = ? ORDER BY historyId DESC LIMIT ?").all(memoryId, limit)
+      : this.database.prepare("SELECT * FROM memory_history ORDER BY historyId DESC LIMIT ?").all(limit);
+    return rows as unknown as HistoryRow[];
+  }
+
+  // "Undo this change": restore the state BEFORE the selected history entry.
+  async rollback(historyId: number, config: EmbeddingConfig, signal?: AbortSignal): Promise<{ id: string } | undefined> {
+    const row = this.database.prepare("SELECT * FROM memory_history WHERE historyId = ?").get(historyId) as
+      | HistoryRow
+      | undefined;
+    if (!row) return undefined;
+    const cur = this.getById(row.memoryId);
+    const now = Date.now();
+    if (row.oldText === null) {
+      // Undo an ADD → remove (if still present).
+      if (cur) {
+        const version = this.currentVersion(row.memoryId) + 1;
+        this.database.prepare("DELETE FROM memories WHERE id = ?").run(row.memoryId);
+        this.recordHistory({
+          memoryId: row.memoryId,
+          op: "ROLLBACK",
+          oldText: cur.text,
+          newText: null,
+          oldCategory: cur.category,
+          newCategory: null,
+          reason: `rollback #${historyId}`,
+          model: null,
+          version,
+          createdAt: now,
+        });
+      }
+      return { id: row.memoryId };
+    }
+    const clean = row.oldText.trim();
+    let embedding: number[] | undefined;
+    if (config.enabled) [embedding] = await embedTexts([clean], config, signal);
+    if (cur) {
+      const version = this.currentVersion(row.memoryId) + 1;
+      this.database
+        .prepare("UPDATE memories SET text = ?, category = ?, updatedAt = ?, version = ?, embedding = ? WHERE id = ?")
+        .run(clean, row.oldCategory, now, version, encodeEmbedding(embedding), row.memoryId);
+      this.recordHistory({
+        memoryId: row.memoryId,
+        op: "ROLLBACK",
+        oldText: cur.text,
+        newText: clean,
+        oldCategory: cur.category,
+        newCategory: row.oldCategory,
+        reason: `rollback #${historyId}`,
+        model: null,
+        version,
+        createdAt: now,
+      });
+    } else {
+      this.database
+        .prepare("INSERT INTO memories(id, text, category, createdAt, updatedAt, version, embedding) VALUES(?, ?, ?, ?, ?, ?, ?)")
+        .run(row.memoryId, clean, row.oldCategory, now, now, 1, encodeEmbedding(embedding));
+      this.recordHistory({
+        memoryId: row.memoryId,
+        op: "ROLLBACK",
+        oldText: null,
+        newText: clean,
+        oldCategory: null,
+        newCategory: row.oldCategory,
+        reason: `rollback #${historyId}`,
+        model: null,
+        version: 1,
+        createdAt: now,
+      });
+    }
+    return { id: row.memoryId };
+  }
+
+  // Idempotent naive path (MEMORY_SMART=0): same text -> same id -> replaces.
   async save(
     text: string,
     category: string | null,
@@ -146,9 +387,22 @@ export class MemoryStore {
       [embedding] = await embedTexts([clean], config, signal);
     }
 
+    const now = Date.now();
     this.database
-      .prepare("INSERT OR REPLACE INTO memories(id, text, category, createdAt, embedding) VALUES(?, ?, ?, ?, ?)")
-      .run(id, clean, category, Date.now(), encodeEmbedding(embedding));
+      .prepare("INSERT OR REPLACE INTO memories(id, text, category, createdAt, updatedAt, version, embedding) VALUES(?, ?, ?, ?, ?, ?, ?)")
+      .run(id, clean, category, now, now, 1, encodeEmbedding(embedding));
+    this.recordHistory({
+      memoryId: id,
+      op: "ADD",
+      oldText: null,
+      newText: clean,
+      oldCategory: null,
+      newCategory: category,
+      reason: "save",
+      model: null,
+      version: 1,
+      createdAt: now,
+    });
 
     return { id };
   }
