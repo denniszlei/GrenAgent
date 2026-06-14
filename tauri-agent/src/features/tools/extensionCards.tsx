@@ -13,7 +13,7 @@ import {
   Square,
   Volume2,
 } from 'lucide-react';
-import type { CSSProperties, FC, ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type FC, type ReactNode } from 'react';
 import { LazyMarkdown } from '../chat/LazyMarkdown';
 import { useCardStyles } from './cardStyles';
 import { extractText, getDetails } from './toolUtils';
@@ -221,10 +221,19 @@ function hostOf(url: string): string {
 
 const WebSearchCard: FC<ExtensionCardProps> = ({ result }) => {
   const { styles, cx } = useCardStyles();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [atEnd, setAtEnd] = useState(false);
   const d = getDetails(result);
   const results = Array.isArray(d?.results)
     ? (d!.results as Array<{ title?: unknown; url?: unknown }>)
     : [];
+
+  // 初始 / 结果变化时判断是否已到末尾（不可横滑时也视为到底，隐藏渐隐）。
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 4);
+  }, [results.length]);
 
   if (results.length === 0) {
     const text = extractText(result);
@@ -233,10 +242,20 @@ const WebSearchCard: FC<ExtensionCardProps> = ({ result }) => {
     );
   }
 
-  // ScrollShadow 横滑结果卡：隐藏原生滚动条 + 右缘渐隐（对齐 lobehub web-browsing）。
+  // ScrollShadow 横滑结果卡：隐藏原生滚动条 + 右缘渐隐（滚到底淡出，对齐 lobehub web-browsing）。
   return (
-    <div className={cx(styles.resultsWrap, styles.resultsWrapFade)} data-testid="card-web_search">
-      <div className={styles.results}>
+    <div
+      className={cx(styles.resultsWrap, !atEnd && styles.resultsWrapFade)}
+      data-testid="card-web_search"
+    >
+      <div
+        ref={scrollRef}
+        className={styles.results}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          setAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 4);
+        }}
+      >
         {results.map((r, i) => {
           const url = asString(r.url);
           const host = hostOf(url);
