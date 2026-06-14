@@ -4,8 +4,9 @@ import { createStaticStyles, cssVar } from 'antd-style';
 import { Maximize2, Minimize2, Minus, Moon, Sun, X } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useThemeStore } from '../stores/themeStore';
+import { TITLE_BAR_HEIGHT } from './titlebarConstants';
 
-export const TITLE_BAR_HEIGHT = 38;
+export { TITLE_BAR_HEIGHT };
 
 const appWindow = getCurrentWindow();
 
