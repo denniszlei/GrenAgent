@@ -4,7 +4,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { htmlToMarkdown, isSafeUrl } from "../web-fetch/html.js";
+import { isSafeUrl } from "../web-fetch/html.js";
+import { getCrawler, type CrawlSuccessResult } from "../web-crawler/index.js";
 import { formatResults, parseBrave, parseTavily, resolveProvider, type ParsedSearch, type SearchResult } from "./provider.js";
 
 const TIMEOUT_MS = Number(process.env.WEB_SEARCH_TIMEOUT_MS ?? "15000") || 15000;
@@ -55,22 +56,17 @@ async function braveSearch(apiKey: string, query: string, maxResults: number, si
 
 async function fetchBodies(results: SearchResult[], signal: AbortSignal | undefined): Promise<string> {
   const parts: string[] = [];
+  const crawler = getCrawler();
   for (const r of results) {
     if (!isSafeUrl(r.url).ok) continue;
-    try {
-      const res = await fetchWithTimeout(
-        r.url,
-        { redirect: "follow", headers: { "user-agent": "pi-web-search/0.1", accept: "text/html,*/*" } },
-        signal,
-        TIMEOUT_MS,
-      );
-      if (!res.ok) continue;
-      let md = htmlToMarkdown(await res.text());
-      if (md.length > FETCH_BODY_MAX) md = `${md.slice(0, FETCH_BODY_MAX)}…`;
-      parts.push(`## ${r.title || r.url}\n${r.url}\n\n${md}`);
-    } catch {
-      // skip a result whose body can't be fetched; the link is still returned above.
-    }
+    // Reuse the shared multi-provider crawler so JS-heavy / bot-protected result
+    // pages still come back as clean content (naive → Jina → optional providers).
+    const res = await crawler.crawl({ url: r.url, signal: signal ?? undefined });
+    if (!("contentType" in res.data)) continue;
+    let md = (res.data as CrawlSuccessResult).content ?? "";
+    if (!md) continue;
+    if (md.length > FETCH_BODY_MAX) md = `${md.slice(0, FETCH_BODY_MAX)}…`;
+    parts.push(`## ${r.title || r.url}\n${r.url}\n\n${md}`);
   }
   return parts.join("\n\n---\n\n");
 }

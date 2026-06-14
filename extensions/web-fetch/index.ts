@@ -1,59 +1,46 @@
 // web-fetch: let the agent fetch web pages over http(s) and read them as
-// markdown/text. Zero dependencies (Node fetch + regex), with an SSRF guard,
-// timeout and output truncation.
+// markdown. Uses the shared multi-provider crawler (naive + Jina Reader, plus
+// Firecrawl/Exa/Search1API when their API keys are set) with per-site URL rules,
+// so JS-heavy or bot-protected pages still come back as clean content.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { extractTitle, htmlToMarkdown, htmlToText, isSafeUrl } from "./html.js";
+import { isSafeUrl } from "./html.js";
+import { getCrawler, type CrawlSuccessResult } from "../web-crawler/index.js";
 
 const MAX_CHARS = Number(process.env.FETCH_MAX_CHARS ?? "20000") || 20000;
-const TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS ?? "15000") || 15000;
 
 export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "fetch_url",
     label: "Fetch URL",
     description:
-      "Fetch a web page over http(s) and return its main content as markdown (default) or plain text. " +
+      "Fetch a web page over http(s) and return its main content as markdown. " +
+      "Tries multiple crawl providers (naive, Jina Reader, and optionally Firecrawl/Exa/Search1API) " +
+      "with per-site rules, so JS-heavy or bot-protected pages still come back readable. " +
       "Use it to read documentation, articles, API references, or release notes.",
     promptSnippet: "Fetch and read a web page (http/https) as markdown.",
     parameters: Type.Object({
       url: Type.String({ description: "Absolute http(s) URL" }),
-      format: Type.Optional(Type.String({ description: "'markdown' (default) or 'text'" })),
+      format: Type.Optional(Type.String({ description: "'markdown' (default) or 'text' (best-effort)" })),
     }),
     async execute(_toolCallId, params, signal) {
       const safe = isSafeUrl(params.url);
       if (!safe.ok) throw new Error(`Refused to fetch: ${safe.reason}`);
 
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-      if (signal) signal.addEventListener("abort", () => controller.abort(), { once: true });
+      const result = await getCrawler().crawl({ url: params.url, signal: signal ?? undefined });
+      const data = result.data;
 
-      let res: Response;
-      try {
-        res = await fetch(params.url, {
-          signal: controller.signal,
-          redirect: "follow",
-          headers: { "user-agent": "pi-web-fetch/0.1", accept: "text/html,application/xhtml+xml,text/plain,*/*" },
-        });
-      } finally {
-        clearTimeout(timer);
+      // All crawl providers failed → surface the error but don't throw.
+      if (!("contentType" in data)) {
+        return {
+          content: [{ type: "text", text: data.content }],
+          details: { url: params.url, crawler: result.crawler, error: data.errorMessage },
+        };
       }
 
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${params.url}`);
-
-      const contentType = res.headers.get("content-type") ?? "";
-      const raw = await res.text();
-
-      let out: string;
-      if (contentType.includes("html") || /^\s*<(!doctype|html)/i.test(raw)) {
-        const title = extractTitle(raw);
-        const body = params.format === "text" ? htmlToText(raw) : htmlToMarkdown(raw);
-        out = (title ? `# ${title}\n\n` : "") + body;
-      } else {
-        out = raw;
-      }
-
+      const page = data as CrawlSuccessResult;
+      let out = (page.title ? `# ${page.title}\n\n` : "") + (page.content ?? "");
       let truncated = false;
       if (out.length > MAX_CHARS) {
         out = out.slice(0, MAX_CHARS);
@@ -62,7 +49,14 @@ export default function (pi: ExtensionAPI) {
 
       return {
         content: [{ type: "text", text: truncated ? `${out}\n\n[truncated to ${MAX_CHARS} chars]` : out }],
-        details: { url: params.url, status: res.status, contentType, chars: out.length, truncated },
+        details: {
+          url: page.url,
+          crawler: result.crawler,
+          transformedUrl: result.transformedUrl,
+          contentType: page.contentType,
+          chars: out.length,
+          truncated,
+        },
       };
     },
   });
