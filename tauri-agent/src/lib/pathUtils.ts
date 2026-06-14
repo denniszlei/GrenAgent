@@ -4,3 +4,12 @@ export function pathsEquivalent(a: string, b: string): boolean {
   const nb = b.replace(/\\/g, '/').replace(/\/$/, '');
   return na.toLowerCase() === nb.toLowerCase();
 }
+
+/** Whether `cwd` is the same as, or located under, `root` (Windows-friendly). */
+export function isUnder(cwd: string, root: string): boolean {
+  if (!cwd || !root) return false;
+  const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  const c = norm(cwd);
+  const r = norm(root);
+  return c === r || c.startsWith(r + '/');
+}
