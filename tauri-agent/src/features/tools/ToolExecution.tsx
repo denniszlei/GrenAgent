@@ -85,6 +85,19 @@ function ToolInspector({
     );
   }
 
+  // fetch_url：读作「读取页面内容：<url>」，对齐 lobe web-browsing。
+  if (toolName.toLowerCase() === 'fetch_url') {
+    const url = getArgString(args, 'url');
+    return (
+      <Flexbox horizontal align="center" gap={6} style={{ minWidth: 0, flex: 1 }}>
+        <StatusIndicator status={status} />
+        <div className={styles.inspectorTitle}>
+          读取页面内容：<span className={styles.paramValue}>{url}</span>
+        </div>
+      </Flexbox>
+    );
+  }
+
   const { icon } = toolMeta(toolName);
   const summary = argSummary(args);
 
