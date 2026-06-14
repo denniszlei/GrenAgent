@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import type { CSSProperties, FC, ReactNode } from 'react';
 import { LazyMarkdown } from '../chat/LazyMarkdown';
+import { useCardStyles } from './cardStyles';
 import { extractText, getDetails } from './toolUtils';
 
 export interface ExtensionCardProps {
@@ -210,34 +211,53 @@ const TodoCard: FC<ExtensionCardProps> = ({ result }) => {
   );
 };
 
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
 const WebSearchCard: FC<ExtensionCardProps> = ({ result }) => {
+  const { styles, cx } = useCardStyles();
   const d = getDetails(result);
-  const provider = asString(d?.provider);
   const results = Array.isArray(d?.results)
-    ? (d!.results as Array<{ title?: unknown; url?: unknown; snippet?: unknown }>)
+    ? (d!.results as Array<{ title?: unknown; url?: unknown }>)
     : [];
-  const text = extractText(result);
+
+  if (results.length === 0) {
+    const text = extractText(result);
+    return (
+      <div data-testid="card-web_search">{text ? <LazyMarkdown>{text}</LazyMarkdown> : null}</div>
+    );
+  }
+
+  // ScrollShadow 横滑结果卡：隐藏原生滚动条 + 右缘渐隐（对齐 lobehub web-browsing）。
   return (
-    <Flexbox gap={6} data-testid="card-web_search">
-      <Flexbox horizontal align="center" gap={6}>
-        <Icon icon={Search} size={14} />
-        <span style={{ fontSize: 12 }}>
-          {results.length} 条结果{provider ? ` · ${provider}` : ''}
-        </span>
-      </Flexbox>
-      {results.length > 0 ? (
-        <Flexbox gap={4}>
-          {results.map((r, i) => (
-            <Flexbox gap={1} key={i}>
-              <span style={{ fontSize: 12 }}>{asString(r.title) || asString(r.url)}</span>
-              <span style={labelStyle}>{asString(r.url)}</span>
-            </Flexbox>
-          ))}
-        </Flexbox>
-      ) : text ? (
-        <LazyMarkdown>{text}</LazyMarkdown>
-      ) : null}
-    </Flexbox>
+    <div className={cx(styles.resultsWrap, styles.resultsWrapFade)} data-testid="card-web_search">
+      <div className={styles.results}>
+        {results.map((r, i) => {
+          const url = asString(r.url);
+          const host = hostOf(url);
+          return (
+            <a
+              key={i}
+              className={styles.rcard}
+              href={url || undefined}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span className={styles.rtitle}>{asString(r.title) || url}</span>
+              <span className={styles.rfoot}>
+                <span className={styles.favi}>{(host || '?').charAt(0)}</span>
+                <span className={styles.rhost}>{host || url}</span>
+              </span>
+            </a>
+          );
+        })}
+      </div>
+    </div>
   );
 };
 

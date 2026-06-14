@@ -98,7 +98,9 @@ describe('renderExtensionCard', () => {
       },
     });
     expect(screen.getByTestId('card-web_search')).toBeTruthy();
-    expect(screen.getByText('https://one.dev')).toBeTruthy();
-    expect(screen.getByText(/Result Two/)).toBeTruthy();
+    expect(screen.getByText('Result One')).toBeTruthy();
+    expect(screen.getByText('Result Two')).toBeTruthy();
+    // 结果卡显示 host（去 www），而非完整 URL。
+    expect(screen.getByText('one.dev')).toBeTruthy();
   });
 });
