@@ -9,6 +9,7 @@ const ENABLED = (process.env.CHECKPOINT ?? "1") !== "0";
 
 export default function (pi: ExtensionAPI) {
   if (!ENABLED) return;
+  console.error("[checkpoint] extension loaded");
   let store: CheckpointStore | undefined;
   let gitdir = "";
 
@@ -27,19 +28,38 @@ export default function (pi: ExtensionAPI) {
     label: string,
     kind: "auto" | "manual",
   ): Promise<{ id: string; files: number } | null> => {
-    const { store, gitdir } = ensure(cwd);
-    await ensureRepo(gitdir, cwd);
-    const r = await track(gitdir, cwd).catch(() => null);
-    if (!r) return null;
-    const { id } = store.add({ hash: r.hash, label, kind, files: JSON.stringify(r.files) });
-    return { id, files: r.files.length };
+    try {
+      const { store, gitdir } = ensure(cwd);
+      await ensureRepo(gitdir, cwd);
+      const r = await track(gitdir, cwd);
+      if (!r) return null;
+      const { id } = store.add({ hash: r.hash, label, kind, files: JSON.stringify(r.files) });
+      console.error(`[checkpoint] ${kind} snapshot ${id} (${r.files.length} file(s)) in ${cwd}`);
+      return { id, files: r.files.length };
+    } catch (e) {
+      console.error(`[checkpoint] snapshot failed: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
   };
 
+  let lastPrompt = "";
+  let baselineDone = false;
+
+  // Before the first turn: capture a baseline of the pre-change workspace so the
+  // first turn is revertable. (Subsequent pre-change state == previous turn's end snapshot.)
   pi.on("before_agent_start", async (event, ctx) => {
-    const prompt =
-      typeof (event as { prompt?: unknown }).prompt === "string" ? (event as { prompt: string }).prompt.trim() : "";
-    await snapshot(ctx.cwd, prompt.slice(0, 80) || "(turn)", "auto").catch(() => {});
+    lastPrompt = typeof (event as { prompt?: unknown }).prompt === "string" ? (event as { prompt: string }).prompt.trim() : "";
+    if (!baselineDone) {
+      baselineDone = true;
+      await snapshot(ctx.cwd, "初始状态 (baseline)", "auto").catch(() => {});
+    }
     return undefined;
+  });
+
+  // After each turn: snapshot the changes the turn just made, so a checkpoint
+  // reflecting that change appears immediately (track() skips no-op turns).
+  pi.on("agent_end", async (_event, ctx) => {
+    await snapshot(ctx.cwd, lastPrompt.slice(0, 80) || "(turn)", "auto").catch(() => {});
   });
 
   pi.registerCommand("checkpoint", {
