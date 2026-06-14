@@ -1,4 +1,4 @@
-import { Collapse, Flexbox, Text } from '@lobehub/ui';
+import { Accordion, AccordionItem, Flexbox, Text } from '@lobehub/ui';
 import { createStyles } from 'antd-style';
 import { useEffect, useState } from 'react';
 import { LazyMarkdown } from './LazyMarkdown';
@@ -62,28 +62,22 @@ export function Thinking({ content, thinking, duration }: ThinkingProps) {
   );
 
   return (
-    <Collapse
-      variant="borderless"
+    <Accordion
+      disableAnimation
       gap={4}
-      expandIconPosition="end"
-      activeKey={showDetail ? ['thinking'] : []}
-      onChange={(keys) => {
-        const arr = Array.isArray(keys) ? keys : [keys];
-        setShowDetail(arr.includes('thinking'));
-      }}
-      items={[
-        {
-          key: 'thinking',
-          label: title,
-          children: showDetail ? (
-            <div ref={bodyRef} className={styles.body} onScroll={handleScroll}>
-              <LazyMarkdown variant="chat" fontSize={13} animated={thinking}>
-                {content}
-              </LazyMarkdown>
-            </div>
-          ) : null,
-        },
-      ]}
-    />
+      variant="borderless"
+      expandedKeys={showDetail ? ['thinking'] : []}
+      onExpandedChange={(keys) => setShowDetail(keys.includes('thinking'))}
+    >
+      <AccordionItem itemKey="thinking" paddingBlock={4} paddingInline={4} title={title}>
+        {showDetail ? (
+          <div ref={bodyRef} className={styles.body} onScroll={handleScroll}>
+            <LazyMarkdown variant="chat" fontSize={13} animated={thinking}>
+              {content}
+            </LazyMarkdown>
+          </div>
+        ) : null}
+      </AccordionItem>
+    </Accordion>
   );
 }
