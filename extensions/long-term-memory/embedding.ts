@@ -2,6 +2,8 @@
 // OpenAI-compatible /embeddings endpoint; falls back to keyword search when no
 // key is configured. Shares OPENAI_API_KEY with other extensions by default.
 
+import { getConfig } from "../_shared/runtime-config.js";
+
 export interface EmbeddingConfig {
   enabled: boolean;
   baseUrl: string;
@@ -10,13 +12,13 @@ export interface EmbeddingConfig {
 }
 
 export function resolveEmbeddingConfig(): EmbeddingConfig {
-  const apiKey = process.env.MEMORY_EMBED_API_KEY ?? process.env.OPENAI_API_KEY ?? "";
-  const baseUrl = (process.env.MEMORY_EMBED_BASE_URL ?? "https://api.openai.com/v1").replace(/\/+$/, "");
+  const apiKey = getConfig("MEMORY_EMBED_API_KEY") ?? getConfig("OPENAI_API_KEY") ?? "";
+  const baseUrl = (getConfig("MEMORY_EMBED_BASE_URL") ?? "https://api.openai.com/v1").replace(/\/+$/, "");
   return {
     enabled: apiKey.length > 0,
     baseUrl,
     apiKey,
-    model: process.env.MEMORY_EMBED_MODEL ?? "text-embedding-3-small",
+    model: getConfig("MEMORY_EMBED_MODEL") ?? "text-embedding-3-small",
   };
 }
 

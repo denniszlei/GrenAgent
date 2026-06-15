@@ -18,15 +18,16 @@ import { type AppliedOp, type AskFn, consolidate, extractFacts } from "./consoli
 import { type EmbeddingConfig, resolveEmbeddingConfig } from "./embedding.js";
 import { askMemoryLlm, resolveMemoryModel } from "./llm.js";
 import { type MemoryHit, MemoryStore, type RecallFilters } from "./store.js";
+import { getConfig } from "../_shared/runtime-config.js";
 
-const AUTO_INJECT = (process.env.MEMORY_AUTO_INJECT ?? "1") !== "0";
-const AUTO_INJECT_TOPK = Number(process.env.MEMORY_AUTO_TOPK ?? "5") || 5;
+const autoInject = () => (getConfig("MEMORY_AUTO_INJECT") ?? "1") !== "0";
+const autoInjectTopK = () => Number(getConfig("MEMORY_AUTO_TOPK") ?? "5") || 5;
 const AUTO_INJECT_MAX_CHARS = 4000;
-const AUTO_CAPTURE = (process.env.MEMORY_AUTO_CAPTURE ?? "1") !== "0";
-const AUTO_EXTRACT = (process.env.MEMORY_EXTRACT ?? "0") !== "0";
-const SMART = (process.env.MEMORY_SMART ?? "1") !== "0";
-const SMART_NOTICE = (process.env.MEMORY_SMART_NOTICE ?? "1") !== "0";
-const MEMORY_MODEL = process.env.MEMORY_MODEL;
+const autoCapture = () => (getConfig("MEMORY_AUTO_CAPTURE") ?? "1") !== "0";
+const autoExtract = () => (getConfig("MEMORY_EXTRACT") ?? "0") !== "0";
+const smart = () => (getConfig("MEMORY_SMART") ?? "1") !== "0";
+const smartNotice = () => (getConfig("MEMORY_SMART_NOTICE") ?? "1") !== "0";
+const memoryModel = () => getConfig("MEMORY_MODEL");
 
 type ScopedHit = MemoryHit & { scope: "project" | "global" };
 
@@ -107,7 +108,7 @@ export default function (pi: ExtensionAPI) {
     const model = resolveMemoryModel(
       ctx.model as never,
       (ctx.modelRegistry ?? { find: () => undefined }) as never,
-      MEMORY_MODEL,
+      memoryModel(),
     );
     if (!model) return undefined;
     return (system, user) => askMemoryLlm(model, system, user, ctx.signal);
@@ -117,13 +118,13 @@ export default function (pi: ExtensionAPI) {
     const { project, global } = ensureStores(ctx.cwd);
     const store = scope === "global" ? global : project;
     const config = resolveEmbeddingConfig();
-    const ask = SMART ? makeAsk(ctx) : undefined;
+    const ask = smart() ? makeAsk(ctx) : undefined;
     if (!ask) {
       // MEMORY_SMART=0 or no model → naive dedup save.
       await store.save(text.trim(), null, config, ctx.signal);
       return [{ op: "ADD", text: text.trim() }];
     }
-    return consolidate(store, text, { ask, config, model: MEMORY_MODEL ?? null, signal: ctx.signal });
+    return consolidate(store, text, { ask, config, model: memoryModel() ?? null, signal: ctx.signal });
   };
 
   const noticeFor = (ops: AppliedOp[]): string | undefined => {
@@ -146,7 +147,7 @@ export default function (pi: ExtensionAPI) {
     const config = resolveEmbeddingConfig();
 
     // Auto-capture: explicit "记住: ..." / "remember: ..." statements only (low noise).
-    if (AUTO_CAPTURE) {
+    if (autoCapture()) {
       const m = prompt.match(/^\s*(?:记住|remember)\s*[:：]\s*(.+)/is);
       const captured = m?.[1]?.trim();
       if (captured) {
@@ -154,9 +155,9 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    if (!AUTO_INJECT) return undefined;
+    if (!autoInject()) return undefined;
 
-    const hits = await recallMerged(ctx.cwd, prompt, AUTO_INJECT_TOPK, config).catch(() => []);
+    const hits = await recallMerged(ctx.cwd, prompt, autoInjectTopK(), config).catch(() => []);
     if (!hits.length) return undefined;
 
     let body = "";
@@ -181,7 +182,7 @@ export default function (pi: ExtensionAPI) {
   // (in-process LLM, no sub-process) and consolidate them into memory.
   // Off by default (MEMORY_EXTRACT=1 to enable) since it adds an LLM call per turn.
   pi.on("agent_end", async (event, ctx) => {
-    if (!AUTO_EXTRACT) return;
+    if (!autoExtract()) return;
     const messages = Array.isArray((event as { messages?: unknown[] })?.messages)
       ? (event as { messages: unknown[] }).messages
       : [];
@@ -220,7 +221,7 @@ export default function (pi: ExtensionAPI) {
       const scope = params.scope === "global" ? "global" : "project";
       const ops = await smartSave({ ...ctx, signal: signal ?? undefined }, text, scope);
       const summary = ops.map((o) => o.op).join(",");
-      if (SMART_NOTICE) {
+      if (smartNotice()) {
         const note = noticeFor(ops);
         if (note) ctx.ui.notify(`🧠 ${note}`, "info");
       }
