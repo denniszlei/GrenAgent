@@ -1,5 +1,5 @@
 import { useCallback, useState, memo } from 'react';
-import { ActionIcon, Empty, Flexbox, Text } from '@lobehub/ui';
+import { ActionIcon, Flexbox, Text } from '@lobehub/ui';
 import { Dropdown } from 'antd';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { FolderPlus, MessageSquarePlus, PanelLeftClose } from 'lucide-react';
@@ -217,8 +217,10 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
     ],
   );
 
-  const showLoading = (isLoading || allSessionsLoading) && conversations.length === 0 && items.length <= 2;
-  const showEmpty = !isLoading && !allSessionsLoading && conversations.length === 0 && items.length <= 2;
+  // items 永远包含「对话」「项目」两个分区头（含新建入口），因此空状态也要渲染 VList——
+  // 不能用 Empty 整体替代，否则分区标题与新建按钮会一起消失（用户无法新建对话/项目）。
+  const showLoading =
+    (isLoading || allSessionsLoading) && conversations.length === 0 && items.length <= 2;
 
   return (
     <Flexbox height="100%" style={{ minHeight: 0, background: 'var(--gren-sidebar-bg, transparent)' }}>
@@ -234,8 +236,6 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
               加载会话…
             </Text>
           </Flexbox>
-        ) : showEmpty ? (
-          <Empty description="暂无对话或项目" />
         ) : (
           <VList data={items} style={{ height: '100%' }}>
             {(item: SidebarItem) => <div key={item.key}>{renderItem(item)}</div>}

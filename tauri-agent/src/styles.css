@@ -26,13 +26,13 @@ body {
   background: #000;
 }
 
+/* 仅对顶层背景容器做主题过渡。切勿用 `#root *` 给全部元素加过渡——
+   大 DOM（长对话消息流）下切主题会为每个元素各跑一遍动画，导致整页卡顿。
+   内部元素的颜色由 antd token / CSS 变量驱动，瞬时切换本就是一帧完成，不需要逐元素过渡。 */
 html.theme-transitioning,
 html.theme-transitioning body,
-html.theme-transitioning #root,
-html.theme-transitioning #root *,
-html.theme-transitioning #root *::before,
-html.theme-transitioning #root *::after {
-  transition-property: background-color, border-color, color, box-shadow, fill, stroke;
+html.theme-transitioning #root {
+  transition-property: background-color;
   transition-duration: 200ms;
   transition-timing-function: ease;
 }

@@ -8,6 +8,10 @@ export const chatStyles = createStaticStyles(({ css }) => ({
     gap: 8px;
     padding-block: 8px;
     max-width: 100%;
+    /* 视口外的消息交给浏览器跳过 layout/paint：大幅降低长对话「首次渲染」「切主题整片重排」开销。
+       contain-intrinsic-size 为屏外项提供占位高度（auto 让浏览器记住上次实测值），减少滚动跳动。 */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 64px;
   `,
   itemUser: css`
     align-items: flex-end;
