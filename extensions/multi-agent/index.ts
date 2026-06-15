@@ -4,6 +4,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { spawnPiAgent } from "./runner.js";
+import { normalizeTasks } from "./tasks.js";
 
 const MAX_CONCURRENCY = 4;
 
@@ -20,15 +21,25 @@ export default function (pi: ExtensionAPI) {
     ],
     parameters: Type.Object({
       task: Type.Optional(Type.String({ description: "A single task for one sub-agent" })),
-      tasks: Type.Optional(Type.Array(Type.String(), { description: "Multiple tasks to run in parallel" })),
+      model: Type.Optional(Type.String({ description: "Model (provider/id) for `task`. Omit → SUBAGENT_MODEL or main default." })),
+      tasks: Type.Optional(
+        Type.Array(
+          Type.Union([
+            Type.String(),
+            Type.Object({ task: Type.String(), model: Type.Optional(Type.String()) }),
+          ]),
+          { description: "Multiple tasks in parallel; each item may be a string or { task, model }." },
+        ),
+      ),
     }),
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      const single = params.task?.trim();
-      const many = (params.tasks ?? []).map((t) => t.trim()).filter(Boolean);
-      if (!single && !many.length) throw new Error("provide `task` or `tasks`");
+      const list = normalizeTasks(params);
+      if (!list.length) throw new Error("provide `task` or `tasks`");
 
-      if (single && !many.length) {
-        const r = await spawnPiAgent(ctx.cwd, single, {
+      if (list.length === 1) {
+        const { task, model } = list[0];
+        const r = await spawnPiAgent(ctx.cwd, task, {
+          model,
           signal: signal ?? undefined,
           onUpdate: onUpdate
             ? (u) =>
@@ -45,14 +56,13 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      const tasks = single ? [single, ...many] : many;
       const results: Array<{ task: string; ok: boolean; output: string; error?: string }> = [];
-      for (let i = 0; i < tasks.length; i += MAX_CONCURRENCY) {
-        const batch = tasks.slice(i, i + MAX_CONCURRENCY);
+      for (let i = 0; i < list.length; i += MAX_CONCURRENCY) {
+        const batch = list.slice(i, i + MAX_CONCURRENCY);
         const settled = await Promise.all(
-          batch.map((t) => spawnPiAgent(ctx.cwd, t, { signal: signal ?? undefined })),
+          batch.map((t) => spawnPiAgent(ctx.cwd, t.task, { model: t.model, signal: signal ?? undefined })),
         );
-        settled.forEach((r, j) => results.push({ task: batch[j], ok: r.ok, output: r.output, error: r.error }));
+        settled.forEach((r, j) => results.push({ task: batch[j].task, ok: r.ok, output: r.output, error: r.error }));
       }
 
       const body = results
