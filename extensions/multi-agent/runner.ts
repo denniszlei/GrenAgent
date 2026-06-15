@@ -2,6 +2,7 @@
 // Mirrors the official subagent example: `pi --mode json -p --no-session <task>`.
 
 import { spawn } from "node:child_process";
+import { getConfig } from "../_shared/runtime-config.js";
 
 export interface AgentResult {
   ok: boolean;
@@ -26,18 +27,18 @@ interface PiEvent {
   message?: { role?: string; content?: unknown };
 }
 
-const TIMEOUT_MS = Number(process.env.SUBAGENT_TIMEOUT_MS ?? "120000") || 120000;
+const timeoutMs = () => Number(getConfig("SUBAGENT_TIMEOUT_MS") ?? "120000") || 120000;
 
 /** User-configured sub-agent model (`SUBAGENT_MODEL` env). Empty → inherit main agent default. */
 export function resolveSubagentModel(): string | undefined {
-  const raw = process.env.SUBAGENT_MODEL?.trim();
+  const raw = getConfig("SUBAGENT_MODEL")?.trim();
   return raw || undefined;
 }
 
 export function resolvePiCommand(): { cmd: string; baseArgs: string[] } {
   // PI_BIN explicitly overrides; otherwise reuse the current executable (the
   // sidecar binary itself under bun --compile) so desktop needs no global `pi`.
-  const piBin = process.env.PI_BIN;
+  const piBin = getConfig("PI_BIN");
   if (piBin) return { cmd: piBin, baseArgs: [] };
   return { cmd: process.execPath, baseArgs: [] };
 }
@@ -110,8 +111,8 @@ export async function spawnPiAgent(
 
     const timer = setTimeout(() => {
       child.kill();
-      finish({ ok: false, output: extractFinalText(stdout), exitCode: -1, error: `timeout after ${TIMEOUT_MS}ms`, transcript: stdout });
-    }, TIMEOUT_MS);
+      finish({ ok: false, output: extractFinalText(stdout), exitCode: -1, error: `timeout after ${timeoutMs()}ms`, transcript: stdout });
+    }, timeoutMs());
 
     child.stdout?.on("data", (d: Buffer) => {
       stdout += d.toString();

@@ -1,13 +1,13 @@
 import type { ExtensionAPI, ProjectTrustEventResult } from "@earendil-works/pi-coding-agent";
 import { extractPath, isDangerousBash, matchProtectedPath } from "./rules.js";
+import { getConfig } from "../_shared/runtime-config.js";
 
 const off = (v: string | undefined) => v === "0" || v?.toLowerCase() === "false";
 
 export default function (pi: ExtensionAPI) {
-  const guardBash = !off(process.env.SAFETY_BASH_CONFIRM);
-  const guardPaths = !off(process.env.SAFETY_PROTECT_PATHS);
-
   pi.on("tool_call", async (event, ctx) => {
+    const guardBash = !off(getConfig("SAFETY_BASH_CONFIRM"));
+    const guardPaths = !off(getConfig("SAFETY_PROTECT_PATHS"));
     if (guardBash && event.toolName === "bash") {
       const command = String(event.input?.command ?? "");
       if (isDangerousBash(command)) {
