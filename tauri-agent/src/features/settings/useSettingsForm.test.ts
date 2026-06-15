@@ -42,4 +42,15 @@ describe('useSettingsForm', () => {
     expect(closeWorkspace).toHaveBeenCalledWith('/ws');
     expect(openWorkspace).toHaveBeenCalledWith('/ws');
   });
+
+  it('setValue debounced-autosaves without restarting', async () => {
+    const { result } = renderHook(() => useSettingsForm());
+    await waitFor(() => expect(result.current.values.OPENAI_API_KEY).toBe('sk-old'));
+    act(() => result.current.setValue('IMAGE_MODEL', 'x'));
+    await waitFor(() =>
+      expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({ IMAGE_MODEL: 'x' })),
+    );
+    expect(closeWorkspace).not.toHaveBeenCalled();
+    expect(openWorkspace).not.toHaveBeenCalled();
+  });
 });
