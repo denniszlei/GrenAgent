@@ -4,7 +4,7 @@ import { ChevronRight, CircleStop, Loader2, Network, PanelRightOpen } from 'luci
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { useCardStyles } from '../tools/cardStyles';
 import { SubAgentConversation } from '../panels/SubAgentConversation';
-import { subAgentStepCount } from '../panels/subagentUtils';
+import { isBackgroundSpawn, subAgentId, subAgentStepCount } from '../panels/subagentUtils';
 import { useDockStore } from '../../stores/dockStore';
 import { useLayoutStore } from '../../stores/layoutStore';
 import { useAgentStoreContext } from '../../stores/AgentStoreContext';
@@ -73,6 +73,12 @@ interface SubAgentInlineProps {
   status: 'running' | 'done' | 'error';
 }
 
+function mapRegistryStatus(status: string | undefined): 'running' | 'done' | 'error' {
+  if (status === 'running') return 'running';
+  if (status === 'error' || status === 'cancelled') return 'error';
+  return 'done';
+}
+
 /**
  * 流内内联子代理：可折叠外壳（Network 状态块 + 「子代理 #N · 任务」+ chevron），
  * 展开为左侧细线缩进的嵌套子会话（复用 SubAgentConversation）。运行中自动展开 + shimmer，
@@ -82,39 +88,82 @@ interface SubAgentInlineProps {
 export function SubAgentInline({ messageId, index, task, result, status }: SubAgentInlineProps) {
   const { styles: card } = useCardStyles();
   const { workspace } = useAgentStoreContext();
-  const [open, setOpen] = useState(status === 'running');
+  const agentId = useMemo(() => subAgentId(result), [result]);
+  const background = useMemo(() => isBackgroundSpawn(result), [result]);
+  const [bgStatus, setBgStatus] = useState<string | null>(background ? 'running' : null);
+  const effectiveStatus = useMemo(() => {
+    if (status === 'running') return 'running' as const;
+    if (background && bgStatus === 'running') return 'running' as const;
+    if (background && bgStatus) return mapRegistryStatus(bgStatus);
+    return status;
+  }, [status, background, bgStatus]);
+  const [open, setOpen] = useState(effectiveStatus === 'running');
 
-  // 深看入口：激活右坞对应 subagent tab 并展开右面板（不切换内联展开态）。
+  useEffect(() => {
+    if (!background || !agentId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const poll = async () => {
+      try {
+        const rows = await pi.subagentList(workspace);
+        if (cancelled) return;
+        const next = rows.find((r) => r.id === agentId)?.status ?? 'done';
+        setBgStatus(next);
+        // 终态即停轮询：避免对已结束的后台子代理永久每 2s 读 sqlite。
+        if (next !== 'running' && timer) {
+          clearInterval(timer);
+          timer = undefined;
+        }
+      } catch {
+        // 跨进程读 registry 偶发 SQLITE_BUSY：保留上次状态，下个 tick 再试。
+      }
+    };
+    void poll();
+    timer = setInterval(() => void poll(), 2000);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [workspace, background, agentId]);
+
   const openInDock = (e: MouseEvent) => {
     e.stopPropagation();
     useDockStore.getState().setActive('right', messageId);
     useLayoutStore.getState().setRightPanelOpen(true);
   };
 
-  // 人工直接停止：中止当前 turn，会杀掉前台正在运行的子代理子进程。
   const stop = (e: MouseEvent) => {
     e.stopPropagation();
-    void pi.abort(workspace);
+    if (status === 'running') {
+      void pi.abort(workspace);
+      return;
+    }
+    if (agentId && (background || bgStatus === 'running')) {
+      void pi.subagentCancel(workspace, agentId);
+      setBgStatus('cancelled');
+    }
   };
 
   useEffect(() => {
-    setOpen(status === 'running');
-  }, [status]);
+    setOpen(effectiveStatus === 'running');
+  }, [effectiveStatus]);
 
-  const running = status === 'running';
+  const running = effectiveStatus === 'running';
   const color =
-    status === 'done'
+    effectiveStatus === 'done'
       ? cssVar.colorSuccess
-      : status === 'error'
+      : effectiveStatus === 'error'
         ? cssVar.colorError
         : cssVar.colorTextSecondary;
 
   const steps = useMemo(() => subAgentStepCount(result), [result]);
   const badge =
-    status === 'done'
+    effectiveStatus === 'done'
       ? `已完成${steps ? ` · ${steps} 步` : ''}`
-      : status === 'error'
-        ? `出错${steps ? ` · ${steps} 步` : ''}`
+      : effectiveStatus === 'error'
+        ? bgStatus === 'cancelled'
+          ? '已停止'
+          : `出错${steps ? ` · ${steps} 步` : ''}`
         : steps
           ? `${steps} 步`
           : '';
@@ -151,7 +200,7 @@ export function SubAgentInline({ messageId, index, task, result, status }: SubAg
       </div>
       {open ? (
         <div className={styles.nested}>
-          <SubAgentConversation task={task} result={result} status={status} />
+          <SubAgentConversation task={task} result={result} status={effectiveStatus} />
         </div>
       ) : null}
     </div>

@@ -9,8 +9,10 @@ pub mod memory;
 pub mod review;
 pub mod sessions;
 pub mod shell;
+pub mod subagent;
 pub mod terminal;
 pub mod workspaces;
 
 pub use agent::*;
 pub use sessions::*;
+pub use subagent::*;

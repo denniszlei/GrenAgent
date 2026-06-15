@@ -99,6 +99,8 @@ pub fn run() {
             commands::create::create_image,
             commands::get_settings,
             commands::set_settings,
+            commands::subagent_list,
+            commands::subagent_cancel,
             commands::terminal::execute_command,
             commands::shell::shell_start,
             commands::shell::shell_write,

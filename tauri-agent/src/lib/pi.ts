@@ -124,6 +124,18 @@ export interface ImageItem {
   modifiedMs: number;
 }
 
+export interface SubAgentItem {
+  id: string;
+  task: string;
+  status: 'running' | 'done' | 'error' | 'cancelled' | string;
+  model?: string | null;
+  output?: string | null;
+  error?: string | null;
+  exitCode?: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export const pi = {
   openWorkspace: (workspace: string) =>
     invoke<OpenWorkspaceResult>('open_workspace', { workspace }),
@@ -189,6 +201,9 @@ export const pi = {
   getSettings: () => invoke<Record<string, string>>('get_settings'),
   setSettings: (settings: Record<string, string>) =>
     invoke<void>('set_settings', { settings }),
+  subagentList: (workspace: string) => invoke<SubAgentItem[]>('subagent_list', { workspace }),
+  subagentCancel: (workspace: string, agentId: string) =>
+    invoke<void>('subagent_cancel', { workspace, agentId }),
   runCommand: (workspace: string, command: string) =>
     invoke<unknown>('agent_prompt', { workspace, message: command }),
   getGitDiff: (workspace: string, file: string) =>

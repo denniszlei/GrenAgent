@@ -7,6 +7,14 @@ vi.mock('../../stores/AgentStoreContext', () => ({
   useAgentStoreContext: () => ({ workspace: '/ws' }),
 }));
 
+vi.mock('../../lib/pi', () => ({
+  pi: {
+    abort: vi.fn(),
+    subagentList: vi.fn().mockResolvedValue([]),
+    subagentCancel: vi.fn(),
+  },
+}));
+
 afterEach(cleanup);
 
 const wrap = (ui: React.ReactElement) =>
@@ -22,6 +30,29 @@ describe('SubAgentInline', { timeout: 30_000 }, () => {
   it('运行中显示运行提示', () => {
     wrap(<SubAgentInline messageId="m2" index={2} task="分析主结构" result={{}} status="running" />);
     expect(screen.getByText(/运行中/)).toBeTruthy();
+  });
+
+  it('后台 spawn 在工具已返回时仍显示运行中', async () => {
+    const { pi } = await import('../../lib/pi');
+    vi.mocked(pi.subagentList).mockResolvedValue([
+      {
+        id: 'sa-bg',
+        task: 'bg task',
+        status: 'running',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]);
+    wrap(
+      <SubAgentInline
+        messageId="m-bg"
+        index={1}
+        task="后台任务"
+        result={{ details: { agentId: 'sa-bg', status: 'running' } }}
+        status="done"
+      />,
+    );
+    expect(await screen.findByText(/运行中/)).toBeTruthy();
   });
 
   it('完成态根据 transcript 显示步数徽章', () => {

@@ -8,6 +8,7 @@ import { normalizeTasks } from "./tasks.js";
 import { resolveProfile, profileToModel, profileToEnv, profileLimits, type ProfileInput } from "./capability.js";
 import { createWorktree, worktreeDiff } from "./worktree.js";
 import { SubAgentRegistry, type SubAgentRow } from "./registry.js";
+import { cancelSubAgent, installCancelWatcher } from "./cancel.js";
 import { getConfig } from "../_shared/runtime-config.js";
 import { join } from "node:path";
 
@@ -26,6 +27,8 @@ function getRegistry(cwd: string): SubAgentRegistry {
     reg.load();
     reg.reapOrphans(); // rows left "running" by a previous process are dead
     registries.set(cwd, reg);
+    // installCancelWatcher is idempotent per cwd (UI/Rust append cancel-requests.jsonl).
+    installCancelWatcher(cwd, (agentId) => cancelSubAgent(agentId, reg!, inflight));
   }
   return reg;
 }
@@ -53,9 +56,8 @@ async function waitForTerminal(reg: SubAgentRegistry, id: string, signal: AbortS
 function reapStuck(reg: SubAgentRegistry): void {
   const thresholdMs = Number(getConfig("SUBAGENT_STUCK_MS") ?? "300000") || 300000;
   for (const row of reg.findStuck(thresholdMs)) {
-    inflight.get(row.id)?.abort();
+    cancelSubAgent(row.id, reg, inflight);
     reg.finish(row.id, { status: "error", error: `stuck: no activity for >${Math.round(thresholdMs / 1000)}s`, exitCode: -1 });
-    inflight.delete(row.id);
   }
 }
 
@@ -165,15 +167,12 @@ export default function (pi: ExtensionAPI) {
         if (!row) throw new Error(`unknown agentId: ${id}`);
 
         if (action === "remove") {
-          if (row.status === "running") inflight.get(id)?.abort();
+          if (row.status === "running") cancelSubAgent(id, registry, inflight);
           registry.remove(id);
           return { content: [{ type: "text", text: `removed ${id}` }], details: { agentId: id, removed: true } };
         }
         if (action === "cancel") {
-          if (row.status === "running") {
-            inflight.get(id)?.abort();
-            registry.finish(id, { status: "cancelled", exitCode: -1 });
-          }
+          if (row.status === "running") cancelSubAgent(id, registry, inflight);
           const out = registry.get(id) ?? row;
           return { content: [{ type: "text", text: statusText(out) }], details: { agentId: out.id, status: out.status } };
         }

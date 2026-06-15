@@ -8,6 +8,24 @@ export function taskLabel(args: unknown): string {
   return '子代理任务';
 }
 
+function detailsOf(result: unknown): Record<string, unknown> | null {
+  if (!result || typeof result !== 'object') return null;
+  const details = (result as { details?: unknown }).details;
+  return details && typeof details === 'object' ? (details as Record<string, unknown>) : null;
+}
+
+/** spawn_agent 工具结果里的 agentId（前台/后台子代理均有）。 */
+export function subAgentId(result: unknown): string | null {
+  const id = detailsOf(result)?.agentId;
+  return typeof id === 'string' && id.trim() ? id.trim() : null;
+}
+
+/** 后台 spawn：工具调用已返回但子代理仍在 registry 中运行。 */
+export function isBackgroundSpawn(result: unknown): boolean {
+  const d = detailsOf(result);
+  return d?.status === 'running' && typeof d?.transcript !== 'string';
+}
+
 function transcriptOf(result: unknown): string {
   if (!result || typeof result !== 'object') return '';
   const details = (result as { details?: unknown }).details;
