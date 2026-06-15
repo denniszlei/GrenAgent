@@ -91,8 +91,8 @@ long-term-memory/
 
 1. ✅ **全局 + 项目两级记忆(已内置)**:`memory_save` 支持 `scope: global`,召回自动合并两级、按分数去重。
 2. ✅ **自动捕获 + 自动提取(均已内置)**:「记住:xxx」即时捕获;`agent_end` 子 agent 从整段对话抽取记忆(`MEMORY_EXTRACT=1` 开启,参考 lobehub memory extractor)。
-3. **遗忘策略**:给记忆加 `lastUsedAt` / 命中计数,长期不用的降权或清理。
-4. **向量索引**:大量记忆时在 `store.ts` 接 `sqlite-vec` 做 ANN。
+3. **遗忘策略(已内置)**:召回命中累计 `useCount` / `lastUsedAt`,融入加权排序(近期/常用上浮,久不用下沉;只降权不删除)。
+4. **召回优化(已内置,纯 JS)**:结构化过滤(category/时间)缩候选 + 预解码向量缓存消除每次重复解码;未引入 sqlite-vec(Pi 是 bun --compile 单二进制,原生扩展无法嵌入)。
 
 ## 注意
 
