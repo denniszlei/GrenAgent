@@ -1,4 +1,5 @@
 import { ActionIcon, Flexbox } from '@lobehub/ui';
+import { cssVar } from 'antd-style';
 import { Undo2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useAgentStoreContext } from '../../stores/AgentStoreContext';
@@ -8,10 +9,10 @@ const muted = 'var(--gren-fg-muted, #9aa1ac)';
 const border = '1px solid var(--gren-border, rgba(255,255,255,0.08))';
 
 const opColor: Record<string, string> = {
-  ADD: '#4ade80',
-  UPDATE: '#fbbf24',
-  DELETE: '#f87171',
-  ROLLBACK: '#60a5fa',
+  ADD: cssVar.colorSuccess,
+  UPDATE: cssVar.colorWarning,
+  DELETE: cssVar.colorError,
+  ROLLBACK: cssVar.colorInfo,
 };
 
 interface MemoryHistoryProps {

@@ -227,7 +227,7 @@ const styles = createStaticStyles(({ css }) => ({
     height: 36px;
     flex: 0 0 auto;
     border-radius: 10px;
-    color: #fff;
+    color: ${cssVar.colorTextLightSolid};
     font-size: 15px;
     font-weight: 600;
     text-transform: uppercase;

@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ActionIcon } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { Maximize2, Minimize2, Minus, Moon, Sun, X } from 'lucide-react';
+import { Maximize2, Minimize2, Minus, X } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { useThemeStore } from '../stores/themeStore';
 import { TITLE_BAR_HEIGHT } from './titlebarConstants';
 
 export { TITLE_BAR_HEIGHT };
@@ -59,8 +58,6 @@ const styles = createStaticStyles(({ css }) => ({
 
 export function Titlebar() {
   const [maximized, setMaximized] = useState(false);
-  const appearance = useThemeStore((s) => s.appearance);
-  const toggleAppearance = useThemeStore((s) => s.toggleAppearance);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -81,13 +78,6 @@ export function Titlebar() {
         Hermes
       </span>
       <div className={styles.controls}>
-        <ActionIcon
-          icon={appearance === 'dark' ? Sun : Moon}
-          size={{ blockSize: 28, size: 14 }}
-          title={appearance === 'dark' ? '切换浅色主题' : '切换深色主题'}
-          className={styles.control}
-          onClick={toggleAppearance}
-        />
         <ActionIcon
           icon={Minus}
           size={{ blockSize: 28, size: 14 }}

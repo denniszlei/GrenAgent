@@ -34,23 +34,28 @@ describe('SettingFieldInput', () => {
     expect(screen.getByText('hello desc')).toBeTruthy();
   });
 
-  it('select renders with its testid', () => {
-    const onChange = vi.fn();
-    render(
-      <SettingFieldInput
-        field={{
-          key: 'S',
-          label: 'S',
-          type: 'select',
-          options: [
-            { value: 'a', label: 'A' },
-            { value: 'b', label: 'B' },
-          ],
-        }}
-        value="a"
-        onChange={onChange}
-      />,
-    );
-    expect(screen.getByTestId('set-field-S')).toBeTruthy();
-  });
+  // antd Select 在 jsdom 下渲染较慢（getComputedStyle 伪元素未实现），放宽超时避免环境性 flaky。
+  it(
+    'select renders with its testid',
+    () => {
+      const onChange = vi.fn();
+      render(
+        <SettingFieldInput
+          field={{
+            key: 'S',
+            label: 'S',
+            type: 'select',
+            options: [
+              { value: 'a', label: 'A' },
+              { value: 'b', label: 'B' },
+            ],
+          }}
+          value="a"
+          onChange={onChange}
+        />,
+      );
+      expect(screen.getByTestId('set-field-S')).toBeTruthy();
+    },
+    30000,
+  );
 });

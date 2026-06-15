@@ -35,10 +35,10 @@ function statusText(probing: boolean, probeError: string | undefined, count: num
 }
 
 function statusColor(probing: boolean, probeError: string | undefined, count: number): string {
-  if (probing) return '#f5a623';
-  if (probeError) return '#f5635b';
-  if (count > 0) return '#3ddc84';
-  return '#8a8f98';
+  if (probing) return cssVar.colorWarning;
+  if (probeError) return cssVar.colorError;
+  if (count > 0) return cssVar.colorSuccess;
+  return cssVar.colorTextQuaternary;
 }
 
 const styles = createStaticStyles(({ css }) => ({

@@ -1,7 +1,7 @@
-import { AudioLines, BookOpen, Boxes, Brain, Globe, Image, Settings2, ShieldCheck } from 'lucide-react';
+import { AudioLines, BookOpen, Boxes, Brain, Globe, Image, Palette, Settings2, ShieldCheck } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-export type FieldType = 'text' | 'password' | 'number' | 'boolean' | 'select';
+export type FieldType = 'text' | 'password' | 'number' | 'boolean' | 'select' | 'model';
 export type SettingGroup = '核心' | '能力' | '联网' | '扩展与安全';
 
 export const SETTING_GROUPS: SettingGroup[] = ['核心', '能力', '联网', '扩展与安全'];
@@ -60,12 +60,20 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
       {
         key: 'titleModel',
         label: '对话标题模型',
-        type: 'text',
+        type: 'model',
         placeholder: '如 anthropic/claude-haiku',
         description: 'provider/id；留空＝自动选轻量模型',
         effect: 'instant',
       },
     ],
+  },
+  {
+    // 外观为前端主题设置（themeStore，非后端 config），由 SettingsPanel 特判渲染 AppearanceSettings。
+    id: 'appearance',
+    title: '外观',
+    group: '核心',
+    icon: Palette,
+    fields: [],
   },
   {
     id: 'knowledge',
@@ -129,7 +137,7 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
           {
             key: 'MEMORY_MODEL',
             label: '记忆模型',
-            type: 'text',
+            type: 'model',
             placeholder: '如 openai/gpt-4o-mini',
             description: '智能合并/提取所用模型；留空＝继承当前对话模型',
           },
@@ -210,7 +218,7 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
           {
             key: 'SUBAGENT_MODEL',
             label: '子代理模型',
-            type: 'text',
+            type: 'model',
             placeholder: '如 deepseek/deepseek-chat',
             description: '留空＝继承主代理默认',
           },

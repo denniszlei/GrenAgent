@@ -2,6 +2,7 @@ import { Flexbox } from '@lobehub/ui';
 import { Input, InputNumber, Select, Switch } from 'antd';
 import { createStyles } from 'antd-style';
 import type { SettingField } from './settingsSchema';
+import { ModelSelectField } from './ModelSelectField';
 
 const useStyles = createStyles(({ css, token }) => ({
   row: css`
@@ -69,6 +70,15 @@ export function SettingFieldInput({ field, value, onChange, testIdPrefix = 'set-
             onChange={(v) => onChange(v ?? '')}
           />
         );
+      case 'model':
+        return (
+          <ModelSelectField
+            value={value}
+            placeholder={field.placeholder}
+            testId={testId}
+            onChange={onChange}
+          />
+        );
       case 'password':
         return (
           <Input.Password
@@ -91,7 +101,7 @@ export function SettingFieldInput({ field, value, onChange, testIdPrefix = 'set-
   };
 
   // 开关/数字/下拉走两端对齐行；长文本类控件占整行宽度。
-  const inline = field.type === 'boolean' || field.type === 'number' || field.type === 'select';
+  const inline = field.type === 'boolean' || field.type === 'number' || field.type === 'select' || field.type === 'model';
 
   if (inline) {
     return (

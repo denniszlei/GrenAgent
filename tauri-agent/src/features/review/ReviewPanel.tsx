@@ -1,4 +1,5 @@
 import { ActionIcon, Flexbox } from '@lobehub/ui';
+import { cssVar } from 'antd-style';
 import { Bot, FileText, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAgentStoreContext } from '../../stores/AgentStoreContext';
@@ -10,11 +11,11 @@ const border = '1px solid var(--gren-border, rgba(255,255,255,0.08))';
 
 const SEVERITY_ORDER = ['blocker', 'major', 'minor', 'nit', 'praise'];
 const SEVERITY_COLOR: Record<string, string> = {
-  blocker: '#f87171',
-  major: '#fb923c',
-  minor: '#facc15',
-  nit: '#9aa1ac',
-  praise: '#4ade80',
+  blocker: cssVar.colorError,
+  major: cssVar.colorWarning,
+  minor: cssVar.colorWarning,
+  nit: cssVar.colorTextQuaternary,
+  praise: cssVar.colorSuccess,
 };
 
 export function ReviewPanel() {

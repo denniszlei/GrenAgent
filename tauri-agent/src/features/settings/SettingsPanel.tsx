@@ -5,6 +5,7 @@ import { fieldEffect, SETTINGS_SCHEMA, SETTING_GROUPS, type SettingCategory } fr
 import { SettingCard } from './SettingCard';
 import { SettingFieldInput } from './SettingField';
 import { useSettingsForm } from './useSettingsForm';
+import { AppearanceSettings } from './AppearanceSettings';
 
 const useStyles = createStyles(({ css, token }) => ({
   root: css`
@@ -92,7 +93,7 @@ const useStyles = createStyles(({ css, token }) => ({
   errorBar: css`
     padding: 6px 16px;
     font-size: 12px;
-    color: #f87171;
+    color: ${token.colorError};
   `,
 }));
 
@@ -144,18 +145,22 @@ export function SettingsPanel() {
         <div className={styles.content}>
           <div className={styles.inner}>
             <div className={styles.pageTitle}>{cat.title}</div>
-            {sections.map((sec, i) => (
-              <SettingCard key={sec.title || i} title={sec.title || undefined}>
-                {sec.fields.map((f) => (
-                  <SettingFieldInput
-                    key={f.key}
-                    field={f}
-                    value={values[f.key] ?? ''}
-                    onChange={(v) => setValue(f.key, v)}
-                  />
-                ))}
-              </SettingCard>
-            ))}
+            {activeId === 'appearance' ? (
+              <AppearanceSettings />
+            ) : (
+              sections.map((sec, i) => (
+                <SettingCard key={sec.title || i} title={sec.title || undefined}>
+                  {sec.fields.map((f) => (
+                    <SettingFieldInput
+                      key={f.key}
+                      field={f}
+                      value={values[f.key] ?? ''}
+                      onChange={(v) => setValue(f.key, v)}
+                    />
+                  ))}
+                </SettingCard>
+              ))
+            )}
           </div>
         </div>
       </div>

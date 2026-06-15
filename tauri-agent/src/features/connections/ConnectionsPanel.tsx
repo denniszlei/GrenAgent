@@ -1,4 +1,5 @@
 import { Flexbox } from '@lobehub/ui';
+import { cssVar } from 'antd-style';
 import { useSettingsForm } from '../settings/useSettingsForm';
 import { SettingFieldInput } from '../settings/SettingField';
 import { CONNECTION_FIELDS } from '../settings/settingsSchema';
@@ -32,7 +33,7 @@ export function ConnectionsPanel() {
       >
         <Flexbox horizontal align="center" gap={8} style={{ fontSize: 13 }}>
           <span>IM 网关</span>
-          <span style={{ fontSize: 12, color: enabled ? '#4ade80' : muted }}>
+          <span style={{ fontSize: 12, color: enabled ? cssVar.colorSuccess : muted }}>
             {enabled ? `● 已启用 :${port}` : '○ 未启用'}
           </span>
         </Flexbox>
@@ -53,7 +54,7 @@ export function ConnectionsPanel() {
           {saving ? '保存中…' : '保存并重启'}
         </button>
       </Flexbox>
-      {error && <div style={{ padding: '6px 14px', fontSize: 12, color: '#f87171' }}>{error}</div>}
+      {error && <div style={{ padding: '6px 14px', fontSize: 12, color: cssVar.colorError }}>{error}</div>}
 
       <div style={{ padding: 16, maxWidth: 560 }}>
         {/* 网关信息卡（由配置推导，重启后实际生效） */}

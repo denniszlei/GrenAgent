@@ -12,12 +12,11 @@ export function ThemeBridge() {
   const timeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const isDark = theme.appearance === 'dark';
     document.documentElement.dataset.theme = theme.appearance;
-    document.body.style.backgroundColor = isDark ? '#0d0d0d' : '#ffffff';
+    document.body.style.backgroundColor = theme.colorBgLayout;
 
     // 把管理面板用到的 --gren-* 占位变量接到当前主题 token，
-    // 使知识库/记忆/审查/创作/设置/连接面板的配色随亮/暗切换（面板代码无需改）。
+    // 使所有面板配色随主题色/中性色/明暗统一变化（面板代码无需改）。
     const root = document.documentElement.style;
     root.setProperty('--gren-fg', theme.colorText);
     root.setProperty('--gren-fg-muted', theme.colorTextSecondary);
@@ -27,10 +26,10 @@ export function ThemeBridge() {
     root.setProperty('--gren-bg-2', theme.colorFillSecondary);
     root.setProperty('--gren-bg-3', theme.colorFillTertiary);
     root.setProperty('--gren-acc', theme.colorPrimary);
-    // 三区分层背景（用户指定 hex；侧栏最深 < 顶部条 < 内容区，亮/暗各一套）
-    root.setProperty('--gren-titlebar-bg', isDark ? '#090909' : '#f8f8f8');
-    root.setProperty('--gren-sidebar-bg', isDark ? '#000000' : '#f8f8f8');
-    root.setProperty('--gren-content-bg', isDark ? '#0d0d0d' : '#ffffff');
+    // 三区分层背景全部取自主题 token（随中性色/明暗变）：侧栏+标题栏用更深的布局底色，内容区用容器色。
+    root.setProperty('--gren-titlebar-bg', theme.colorBgLayout);
+    root.setProperty('--gren-sidebar-bg', theme.colorBgLayout);
+    root.setProperty('--gren-content-bg', theme.colorBgContainer);
 
     if (previousAppearanceRef.current !== theme.appearance) {
       document.documentElement.classList.add('theme-transitioning');
@@ -49,7 +48,7 @@ export function ThemeBridge() {
       }
       document.documentElement.classList.remove('theme-transitioning');
     };
-  }, [theme.appearance, theme.colorBgLayout]);
+  }, [theme.appearance, theme.colorBgLayout, theme.colorBgContainer, theme.colorPrimary]);
 
   return null;
 }
