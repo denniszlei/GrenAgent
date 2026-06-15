@@ -10,6 +10,9 @@ describe("resolveProfile", () => {
     expect(resolveProfile("explore").fs).toBe("readonly");
     expect(resolveProfile("explore").model).toBe("cheap");
   });
+  it("executor preset uses worktree isolation", () => {
+    expect(resolveProfile("executor").isolation).toBe("worktree");
+  });
   it("unknown name → falls back to default", () => {
     expect(resolveProfile("nope").fs).toBe("workspace");
   });

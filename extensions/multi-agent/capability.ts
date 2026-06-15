@@ -37,9 +37,8 @@ export const PRESETS: Record<string, CapabilityProfile> = {
     isolation: "process",
     model: "strong",
   },
-  // P0: executor runs as `process` (no write isolation yet). P2 upgrades this to
-  // `isolation: "worktree"` once createWorktree lands.
-  executor: { name: "executor", fs: "workspace", net: false, mcp: false, spawn: false, isolation: "process", model: "cheap" },
+  // executor writes inside an isolated git worktree (P2); its diff is returned for review.
+  executor: { name: "executor", fs: "workspace", net: false, mcp: false, spawn: false, isolation: "worktree", model: "cheap" },
   reviewer: { name: "reviewer", fs: "readonly", net: false, mcp: false, spawn: false, isolation: "process", model: "strong" },
 };
 
