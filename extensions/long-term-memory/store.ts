@@ -510,8 +510,8 @@ export class MemoryStore {
           score: scoreMemory({
             sim: x.sim,
             createdAt: x.r.createdAt,
-            lastUsedAt: null, // P3 接入字段后改为真实值
-            useCount: 0, // P3 接入字段后改为真实值
+            lastUsedAt: x.r.lastUsedAt ?? null,
+            useCount: x.r.useCount ?? 0,
             now,
           }),
         }));
@@ -519,9 +519,19 @@ export class MemoryStore {
       scored = rows.map((r) => ({ memory: toMemory(r), score: keywordScore(query, r.text) }));
     }
 
-    return scored
+    const hits = scored
       .filter((s) => s.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, Math.max(1, topK));
+
+    if (hits.length) {
+      const ts = Date.now();
+      const stmt = this.database.prepare(
+        "UPDATE memories SET useCount = COALESCE(useCount, 0) + 1, lastUsedAt = ? WHERE id = ?",
+      );
+      for (const h of hits) stmt.run(ts, h.memory.id);
+    }
+
+    return hits;
   }
 }

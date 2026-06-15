@@ -148,4 +148,17 @@ describe("recall filters + vector cache", () => {
     s.remove(id, "x");
     expect(await s.recall("beta beta", 1, ON)).toHaveLength(0);
   });
+
+  it("recall bumps useCount which raises a memory's score over repeats", async () => {
+    const s = newStore();
+    const a = await s.insert("topic alpha", null, ON, "t");
+    await s.insert("topic gamma", null, ON, "t");
+    const scoreOf = async () =>
+      (await s.recall("topic alpha", 5, ON)).find((h) => h.memory.id === a.id)!.score;
+    const before = await scoreOf(); // 评分时 useCount=0，随后命中累计
+    await scoreOf();
+    await scoreOf();
+    const after = await scoreOf(); // useCount 已累计，usage 项抬高 score
+    expect(after).toBeGreaterThan(before);
+  });
 });
