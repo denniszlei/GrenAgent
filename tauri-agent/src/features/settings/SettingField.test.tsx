@@ -1,0 +1,56 @@
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SettingFieldInput } from './SettingField';
+
+afterEach(cleanup);
+
+describe('SettingFieldInput', () => {
+  it('boolean renders a switch and toggles 1/0', () => {
+    const onChange = vi.fn();
+    render(<SettingFieldInput field={{ key: 'X', label: 'X', type: 'boolean' }} value="0" onChange={onChange} />);
+    fireEvent.click(screen.getByTestId('set-field-X'));
+    expect(onChange).toHaveBeenCalledWith('1');
+  });
+
+  it('text input reflects value and emits changes', () => {
+    const onChange = vi.fn();
+    render(<SettingFieldInput field={{ key: 'Y', label: 'Y', type: 'text' }} value="a" onChange={onChange} />);
+    const el = screen.getByTestId('set-field-Y') as HTMLInputElement;
+    expect(el.value).toBe('a');
+    fireEvent.change(el, { target: { value: 'b' } });
+    expect(onChange).toHaveBeenCalledWith('b');
+  });
+
+  it('renders description and honors testIdPrefix', () => {
+    render(
+      <SettingFieldInput
+        field={{ key: 'Z', label: 'Z', type: 'text', description: 'hello desc' }}
+        value=""
+        onChange={() => {}}
+        testIdPrefix="conn-field"
+      />,
+    );
+    expect(screen.getByTestId('conn-field-Z')).toBeTruthy();
+    expect(screen.getByText('hello desc')).toBeTruthy();
+  });
+
+  it('select renders with its testid', () => {
+    const onChange = vi.fn();
+    render(
+      <SettingFieldInput
+        field={{
+          key: 'S',
+          label: 'S',
+          type: 'select',
+          options: [
+            { value: 'a', label: 'A' },
+            { value: 'b', label: 'B' },
+          ],
+        }}
+        value="a"
+        onChange={onChange}
+      />,
+    );
+    expect(screen.getByTestId('set-field-S')).toBeTruthy();
+  });
+});

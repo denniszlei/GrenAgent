@@ -1,9 +1,36 @@
 import { Flexbox } from '@lobehub/ui';
-import type { ChangeEvent } from 'react';
+import { Input, InputNumber, Select, Switch } from 'antd';
+import { createStyles } from 'antd-style';
 import type { SettingField } from './settingsSchema';
 
-const muted = 'var(--gren-fg-muted, #9aa1ac)';
-const border = '1px solid var(--gren-border, rgba(255,255,255,0.08))';
+const useStyles = createStyles(({ css, token }) => ({
+  row: css`
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-block: 10px;
+  `,
+  meta: css`
+    min-width: 0;
+  `,
+  label: css`
+    font-size: 13px;
+    color: ${token.colorText};
+  `,
+  desc: css`
+    margin-block-start: 2px;
+    font-size: 12px;
+    color: ${token.colorTextDescription};
+  `,
+  control: css`
+    flex: 0 0 auto;
+  `,
+  wide: css`
+    flex: 1 1 auto;
+    min-width: 0;
+  `,
+}));
 
 interface Props {
   field: SettingField;
@@ -14,67 +41,75 @@ interface Props {
 }
 
 export function SettingFieldInput({ field, value, onChange, testIdPrefix = 'set-field' }: Props) {
+  const { styles, cx } = useStyles();
   const testId = `${testIdPrefix}-${field.key}`;
+  const on = value === '1' || value.toLowerCase() === 'true';
 
-  if (field.type === 'boolean') {
-    const on = value === '1' || value.toLowerCase() === 'true';
-    return (
-      <Flexbox horizontal align="center" gap={10} style={{ marginBlockEnd: 12 }}>
-        <button
-          data-testid={testId}
-          type="button"
-          role="switch"
-          aria-checked={on}
-          title={on ? '已开启' : '已关闭'}
-          onClick={() => onChange(on ? '0' : '1')}
-          style={{
-            position: 'relative',
-            width: 34,
-            height: 20,
-            flex: '0 0 auto',
-            borderRadius: 10,
-            border: 'none',
-            cursor: 'pointer',
-            background: on ? 'var(--gren-acc, #4c8dff)' : 'var(--gren-bg-3, #3a3f47)',
-          }}
-        >
-          <span
-            style={{
-              position: 'absolute',
-              top: 2,
-              insetInlineStart: on ? 16 : 2,
-              width: 16,
-              height: 16,
-              borderRadius: '50%',
-              background: '#fff',
-              transition: 'inset-inline-start 0.15s ease',
-            }}
+  const control = () => {
+    switch (field.type) {
+      case 'boolean':
+        return <Switch data-testid={testId} checked={on} onChange={(checked) => onChange(checked ? '1' : '0')} />;
+      case 'number':
+        return (
+          <InputNumber
+            data-testid={testId}
+            value={value === '' ? null : Number(value)}
+            placeholder={field.placeholder}
+            onChange={(n) => onChange(n == null ? '' : String(n))}
           />
-        </button>
-        <span style={{ fontSize: 12, color: muted }}>{field.label}</span>
-      </Flexbox>
+        );
+      case 'select':
+        return (
+          <Select
+            data-testid={testId}
+            value={value || undefined}
+            placeholder={field.placeholder}
+            options={field.options}
+            style={{ minWidth: 180 }}
+            onChange={(v) => onChange(v ?? '')}
+          />
+        );
+      case 'password':
+        return (
+          <Input.Password
+            data-testid={testId}
+            value={value}
+            placeholder={field.placeholder}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        );
+      default:
+        return (
+          <Input
+            data-testid={testId}
+            value={value}
+            placeholder={field.placeholder}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        );
+    }
+  };
+
+  // 开关/数字/下拉走两端对齐行；长文本类控件占整行宽度。
+  const inline = field.type === 'boolean' || field.type === 'number' || field.type === 'select';
+
+  if (inline) {
+    return (
+      <div className={styles.row}>
+        <div className={styles.meta}>
+          <div className={styles.label}>{field.label}</div>
+          {field.description ? <div className={styles.desc}>{field.description}</div> : null}
+        </div>
+        <div className={styles.control}>{control()}</div>
+      </div>
     );
   }
 
   return (
-    <Flexbox gap={4} style={{ marginBlockEnd: 12 }}>
-      <span style={{ fontSize: 12, color: muted }}>{field.label}</span>
-      <input
-        data-testid={testId}
-        value={value ?? ''}
-        placeholder={field.placeholder}
-        type={field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'}
-        onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
-        style={{
-          width: '100%',
-          padding: '6px 8px',
-          borderRadius: 6,
-          border,
-          background: 'transparent',
-          color: 'inherit',
-          fontSize: 13,
-        }}
-      />
+    <Flexbox gap={6} style={{ paddingBlock: 10 }}>
+      <div className={styles.label}>{field.label}</div>
+      {field.description ? <div className={styles.desc}>{field.description}</div> : null}
+      <div className={cx(styles.wide)}>{control()}</div>
     </Flexbox>
   );
 }
