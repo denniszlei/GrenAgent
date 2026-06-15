@@ -1,6 +1,8 @@
 // Text-to-speech via an OpenAI-compatible /audio/speech endpoint.
 // Returns raw audio bytes; requires TTS_API_KEY or OPENAI_API_KEY.
 
+import { getConfig } from "../_shared/runtime-config.js";
+
 export interface TtsConfig {
   enabled: boolean;
   baseUrl: string;
@@ -11,15 +13,15 @@ export interface TtsConfig {
 }
 
 export function resolveTtsConfig(): TtsConfig {
-  const apiKey = process.env.TTS_API_KEY ?? process.env.OPENAI_API_KEY ?? "";
-  const baseUrl = (process.env.TTS_BASE_URL ?? "https://api.openai.com/v1").replace(/\/+$/, "");
+  const apiKey = getConfig("TTS_API_KEY") ?? getConfig("OPENAI_API_KEY") ?? "";
+  const baseUrl = (getConfig("TTS_BASE_URL") ?? "https://api.openai.com/v1").replace(/\/+$/, "");
   return {
     enabled: apiKey.length > 0,
     baseUrl,
     apiKey,
-    model: process.env.TTS_MODEL ?? "gpt-4o-mini-tts",
-    voice: process.env.TTS_VOICE ?? "alloy",
-    format: process.env.TTS_FORMAT ?? "mp3",
+    model: getConfig("TTS_MODEL") ?? "gpt-4o-mini-tts",
+    voice: getConfig("TTS_VOICE") ?? "alloy",
+    format: getConfig("TTS_FORMAT") ?? "mp3",
   };
 }
 

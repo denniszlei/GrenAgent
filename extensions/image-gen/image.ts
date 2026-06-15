@@ -1,6 +1,8 @@
 // Image generation via an OpenAI-compatible /images/generations endpoint.
 // Returns raw PNG bytes; requires IMAGE_API_KEY or OPENAI_API_KEY.
 
+import { getConfig } from "../_shared/runtime-config.js";
+
 export interface ImageConfig {
   enabled: boolean;
   baseUrl: string;
@@ -10,14 +12,14 @@ export interface ImageConfig {
 }
 
 export function resolveImageConfig(): ImageConfig {
-  const apiKey = process.env.IMAGE_API_KEY ?? process.env.OPENAI_API_KEY ?? "";
-  const baseUrl = (process.env.IMAGE_BASE_URL ?? "https://api.openai.com/v1").replace(/\/+$/, "");
+  const apiKey = getConfig("IMAGE_API_KEY") ?? getConfig("OPENAI_API_KEY") ?? "";
+  const baseUrl = (getConfig("IMAGE_BASE_URL") ?? "https://api.openai.com/v1").replace(/\/+$/, "");
   return {
     enabled: apiKey.length > 0,
     baseUrl,
     apiKey,
-    model: process.env.IMAGE_MODEL ?? "gpt-image-1",
-    size: process.env.IMAGE_SIZE ?? "1024x1024",
+    model: getConfig("IMAGE_MODEL") ?? "gpt-image-1",
+    size: getConfig("IMAGE_SIZE") ?? "1024x1024",
   };
 }
 
