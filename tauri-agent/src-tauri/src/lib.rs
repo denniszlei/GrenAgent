@@ -82,6 +82,8 @@ pub fn run() {
             commands::mcp_policy::read_mcp_policy,
             commands::mcp_policy::write_mcp_policy,
             commands::mcp_policy::read_mcp_audit,
+            commands::mcp_policy::read_mcp_tools_cache,
+            commands::mcp_policy::probe_mcp_server,
             commands::git::get_git_status,
             commands::git::get_git_diff,
             commands::knowledge::kb_stats,
