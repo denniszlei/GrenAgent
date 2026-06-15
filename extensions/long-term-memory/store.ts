@@ -7,7 +7,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "../_shared/sqlite.js";
 import { type EmbeddingConfig, embedTexts } from "./embedding.js";
-import { dot, vecNorm } from "./ranking.js";
+import { dot, scoreMemory, vecNorm } from "./ranking.js";
 
 export interface Memory {
   id: string;
@@ -486,12 +486,26 @@ export class MemoryStore {
       const [q] = await embedTexts([query], config, signal);
       const qv = Float32Array.from(q);
       const qnorm = vecNorm(qv);
-      scored = rows.map((r) => {
-        const c = cache.get(r.id);
-        const denom = qnorm * (c?.norm ?? 0);
-        const sim = c && denom ? dot(qv, c.vec) / denom : 0;
-        return { memory: toMemory(r), score: sim };
-      });
+      const now = Date.now();
+      // 先按相似度过滤掉无关项（sim>0），再用 score（含时效/使用度）排序。
+      scored = rows
+        .map((r) => {
+          const c = cache.get(r.id);
+          const denom = qnorm * (c?.norm ?? 0);
+          const sim = c && denom ? dot(qv, c.vec) / denom : 0;
+          return { r, sim };
+        })
+        .filter((x) => x.sim > 0)
+        .map((x) => ({
+          memory: toMemory(x.r),
+          score: scoreMemory({
+            sim: x.sim,
+            createdAt: x.r.createdAt,
+            lastUsedAt: null, // P3 接入字段后改为真实值
+            useCount: 0, // P3 接入字段后改为真实值
+            now,
+          }),
+        }));
     } else {
       scored = rows.map((r) => ({ memory: toMemory(r), score: keywordScore(query, r.text) }));
     }
