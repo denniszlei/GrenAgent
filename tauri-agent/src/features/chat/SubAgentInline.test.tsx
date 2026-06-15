@@ -1,7 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { ThemeProvider } from '@lobehub/ui';
 import { SubAgentInline } from './SubAgentInline';
+
+vi.mock('../../stores/AgentStoreContext', () => ({
+  useAgentStoreContext: () => ({ workspace: '/ws' }),
+}));
 
 afterEach(cleanup);
 

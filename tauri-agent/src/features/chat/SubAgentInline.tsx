@@ -1,12 +1,14 @@
 import { ActionIcon, Block, Icon } from '@lobehub/ui';
 import { createStaticStyles, cssVar, cx } from 'antd-style';
-import { ChevronRight, Loader2, Network, PanelRightOpen } from 'lucide-react';
+import { ChevronRight, CircleStop, Loader2, Network, PanelRightOpen } from 'lucide-react';
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { useCardStyles } from '../tools/cardStyles';
 import { SubAgentConversation } from '../panels/SubAgentConversation';
 import { subAgentStepCount } from '../panels/subagentUtils';
 import { useDockStore } from '../../stores/dockStore';
 import { useLayoutStore } from '../../stores/layoutStore';
+import { useAgentStoreContext } from '../../stores/AgentStoreContext';
+import { pi } from '../../lib/pi';
 
 const styles = createStaticStyles(({ css }) => ({
   head: css`
@@ -79,6 +81,7 @@ interface SubAgentInlineProps {
  */
 export function SubAgentInline({ messageId, index, task, result, status }: SubAgentInlineProps) {
   const { styles: card } = useCardStyles();
+  const { workspace } = useAgentStoreContext();
   const [open, setOpen] = useState(status === 'running');
 
   // 深看入口：激活右坞对应 subagent tab 并展开右面板（不切换内联展开态）。
@@ -86,6 +89,12 @@ export function SubAgentInline({ messageId, index, task, result, status }: SubAg
     e.stopPropagation();
     useDockStore.getState().setActive('right', messageId);
     useLayoutStore.getState().setRightPanelOpen(true);
+  };
+
+  // 人工直接停止：中止当前 turn，会杀掉前台正在运行的子代理子进程。
+  const stop = (e: MouseEvent) => {
+    e.stopPropagation();
+    void pi.abort(workspace);
   };
 
   useEffect(() => {
@@ -127,6 +136,9 @@ export function SubAgentInline({ messageId, index, task, result, status }: SubAg
           {running ? '（运行中…）' : ''}
         </span>
         {badge ? <span className={styles.badge}>{badge}</span> : null}
+        {running ? (
+          <ActionIcon icon={CircleStop} size="small" title="停止子代理" onClick={stop} />
+        ) : null}
         <ActionIcon
           icon={PanelRightOpen}
           size="small"
