@@ -7,6 +7,7 @@ import checkpoint from "./checkpoint/index.js";
 import compactionPolicy from "./compaction-policy/index.js";
 import loopGuard from "./loop-guard/index.js";
 import codeReview from "./code-review/index.js";
+import codeSearch from "./code-search/index.js";
 import diagnostics from "./diagnostics/index.js";
 import imGateway from "./im-gateway/index.js";
 import goal from "./goal/index.js";
@@ -46,6 +47,7 @@ export {
   codeReview,
   diagnostics,
   multiAgent,
+  codeSearch,
   tts,
   imGateway,
 };
@@ -72,6 +74,7 @@ export const allExtensions = [
   codeReview,
   diagnostics,
   multiAgent,
+  codeSearch,
   tts,
   imGateway,
 ];
