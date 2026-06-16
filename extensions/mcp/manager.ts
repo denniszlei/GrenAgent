@@ -4,10 +4,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { getAllConfig, getConfig, watchConfig } from "../_shared/runtime-config.js";
-import { injectDefaultServers, type McpServerConfig, parseMcpServers } from "./config.js";
+import { expandServerVars, injectDefaultServers, type McpServerConfig, parseMcpServers } from "./config.js";
 import { diffServers } from "./diff.js";
 import type { ProbeResult } from "./probe.js";
-import { writeToolsCacheEntry } from "./toolsCache.js";
+import { readToolsCache, writeToolsCacheEntry } from "./toolsCache.js";
 
 export const MCP_TIMEOUT_MS = Number(process.env.MCP_TIMEOUT_MS ?? "60000") || 60000;
 
@@ -79,7 +79,13 @@ async function realConnect(s: McpServerConfig): Promise<McpClient> {
 }
 
 function defaultReadServers(): McpServerConfig[] {
-  return injectDefaultServers(parseMcpServers(getConfig("MCP_SERVERS") ?? ""), getAllConfig(), process.platform);
+  const servers = injectDefaultServers(
+    parseMcpServers(getConfig("MCP_SERVERS") ?? ""),
+    getAllConfig(),
+    process.platform,
+    readToolsCache(),
+  );
+  return expandServerVars(servers, process.cwd());
 }
 
 export function createManager(deps: ManagerDeps = {}): McpManager {

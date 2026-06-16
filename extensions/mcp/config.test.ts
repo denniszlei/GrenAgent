@@ -62,6 +62,47 @@ describe("injectDefaultServers", () => {
   });
 });
 
+describe("injectDefaultServers · code-intel", () => {
+  const base = { PI_PACKAGE_DIR: "/pkg" } as Record<string, string | undefined>;
+
+  it("injects codegraph by default (pointing at the bundled binary)", () => {
+    const cg = injectDefaultServers([], { ...base, CODE_INTEL: "codegraph" }, "linux").find((s) => s.name === "codegraph");
+    expect(cg?.command).toBe("/pkg/codegraph");
+    expect(cg?.args).toEqual(["serve", "--mcp"]);
+  });
+
+  it("injects codegraph even when CODE_INTEL is unset (default engine)", () => {
+    expect(injectDefaultServers([], { ...base }, "linux").find((s) => s.name === "codegraph")).toBeTruthy();
+  });
+
+  it("does not inject without PI_PACKAGE_DIR (keeps existing tests green)", () => {
+    expect(injectDefaultServers([], { CODE_INTEL: "codegraph" }, "linux")).toEqual([]);
+  });
+
+  it("skips injection when CODE_INTEL=off", () => {
+    expect(injectDefaultServers([], { ...base, CODE_INTEL: "off" }, "linux").find((s) => s.name === "codegraph")).toBeUndefined();
+  });
+
+  it("yields when the user already configured a same-named server", () => {
+    const user = parseMcpServers('{"mcpServers":{"codegraph":{"command":"my-cg","args":["x"]}}}');
+    const out = injectDefaultServers(user, { ...base, CODE_INTEL: "codegraph" }, "linux");
+    expect(out.filter((s) => s.name === "codegraph")).toHaveLength(1);
+    expect(out.find((s) => s.name === "codegraph")?.command).toBe("my-cg");
+  });
+
+  it("yields when a differently-named user server exposes codegraph_* tools", () => {
+    const user = parseMcpServers('{"mcpServers":{"my-cg":{"command":"x"}}}');
+    const out = injectDefaultServers(user, { ...base, CODE_INTEL: "codegraph" }, "linux", { "my-cg": ["codegraph_explore"] });
+    expect(out.find((s) => s.name === "codegraph")).toBeUndefined();
+  });
+
+  it("still injects open-websearch alongside codegraph", () => {
+    const out = injectDefaultServers([], { ...base, OPEN_WEBSEARCH: "1" }, "linux");
+    expect(out.find((s) => s.name === "codegraph")).toBeTruthy();
+    expect(out.find((s) => s.name === "open-websearch")).toBeTruthy();
+  });
+});
+
 describe("sanitize", () => {
   it("replaces non-alphanumeric chars with underscore", () => {
     expect(sanitize("we!rd name")).toBe("we_rd_name");

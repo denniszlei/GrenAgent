@@ -1,5 +1,6 @@
 // Pure helpers for the mcp extension: parse the MCP_SERVERS JSON config and
 // sanitize names for tool registration. No I/O so the logic stays testable.
+import { getEngine, matchesEngineSignature } from "../code-intel/engines.js";
 
 export interface McpServerConfig {
   name: string;
@@ -51,33 +52,71 @@ export function parseMcpServers(json: string): McpServerConfig[] {
   return servers;
 }
 
-// 默认内置 open-webSearch（多引擎搜索 bing/baidu/sogou/csdn/掘金 + 文章抓取，零配置）。
-// OPEN_WEBSEARCH=0 关闭；用户在 MCP_SERVERS 自定义同名 server 时以用户配置为准。
-// Windows 需经 `cmd /c npx`（直接 spawn npx.cmd 在部分环境会失败），其余平台直接用 npx。
+// 默认内置服务注入：
+// 1) 代码图谱引擎（CODE_INTEL，默认 codegraph）：命令指向随 app 打包的二进制（PI_PACKAGE_DIR）。
+//    用户在 MCP_SERVERS 自配同名 server，或配了暴露 codegraph_* 工具的 server 时，内置让位。
+// 2) open-webSearch（多引擎搜索 bing/baidu/sogou/csdn/掘金 + 文章抓取，零配置）：OPEN_WEBSEARCH=0 关闭，
+//    用户自定义同名 server 时以用户配置为准。Windows 经 `cmd /c npx`，其余平台直接用 npx。
 export function injectDefaultServers(
   servers: McpServerConfig[],
   env: Record<string, string | undefined>,
   platform: string,
+  userServerTools: Record<string, string[]> = {},
 ): McpServerConfig[] {
-  if ((env.OPEN_WEBSEARCH ?? "0") === "0") return servers;
-  if (servers.some((s) => s.name === "open-websearch")) return servers;
-  const isWin = platform === "win32";
-  return [
-    ...servers,
-    {
-      name: "open-websearch",
-      transport: "stdio",
-      command: isWin ? "cmd" : "npx",
-      args: isWin ? ["/c", "npx", "-y", "open-websearch@latest"] : ["-y", "open-websearch@latest"],
-      env: {
-        MODE: "stdio",
-        DEFAULT_SEARCH_ENGINE: env.OPEN_WEBSEARCH_ENGINE ?? "bing",
-        ALLOWED_SEARCH_ENGINES: env.OPEN_WEBSEARCH_ENGINES ?? "bing,baidu,sogou,csdn,juejin",
+  let out = servers;
+
+  // 1) code-intel 引擎（默认 codegraph；off 关闭）。需 PI_PACKAGE_DIR 解析捆绑二进制。
+  const engineName = env.CODE_INTEL ?? "codegraph";
+  const engine = engineName === "off" ? undefined : getEngine(engineName);
+  if (engine) {
+    const sameName = out.some((s) => s.name === engine.serverName);
+    const signatureHit = Object.values(userServerTools).some((tools) =>
+      matchesEngineSignature(engineName, tools),
+    );
+    const pkgDir = env.PI_PACKAGE_DIR ?? "";
+    if (!sameName && !signatureHit && pkgDir) {
+      out = [...out, engine.buildConfig(pkgDir, platform)];
+    }
+  }
+
+  // 2) open-websearch。
+  if ((env.OPEN_WEBSEARCH ?? "0") !== "0" && !out.some((s) => s.name === "open-websearch")) {
+    const isWin = platform === "win32";
+    out = [
+      ...out,
+      {
+        name: "open-websearch",
+        transport: "stdio",
+        command: isWin ? "cmd" : "npx",
+        args: isWin ? ["/c", "npx", "-y", "open-websearch@latest"] : ["-y", "open-websearch@latest"],
+        env: {
+          MODE: "stdio",
+          DEFAULT_SEARCH_ENGINE: env.OPEN_WEBSEARCH_ENGINE ?? "bing",
+          ALLOWED_SEARCH_ENGINES: env.OPEN_WEBSEARCH_ENGINES ?? "bing,baidu,sogou,csdn,juejin",
+        },
       },
-    },
-  ];
+    ];
+  }
+
+  return out;
 }
 
 export function sanitize(s: string): string {
   return s.replace(/[^a-zA-Z0-9_]/g, "_");
+}
+
+// Expand VSCode-style ${workspaceFolder} / ${cwd} placeholders in a server's
+// command/args/url/env against the agent's cwd. pi has no built-in expansion, so
+// without this a config like `codegraph --path ${workspaceFolder}` receives the
+// literal string and the server fails to start. Applied for BOTH main and sub
+// agents (see manager.defaultReadServers).
+export function expandServerVars(servers: McpServerConfig[], cwd: string): McpServerConfig[] {
+  const sub = (s: string): string => s.replace(/\$\{workspaceFolder\}/g, cwd).replace(/\$\{cwd\}/g, cwd);
+  return servers.map((srv) => ({
+    ...srv,
+    command: srv.command ? sub(srv.command) : srv.command,
+    args: srv.args ? srv.args.map(sub) : srv.args,
+    url: srv.url ? sub(srv.url) : srv.url,
+    env: srv.env ? Object.fromEntries(Object.entries(srv.env).map(([k, v]) => [k, sub(v)])) : srv.env,
+  }));
 }
