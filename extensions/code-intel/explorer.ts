@@ -1,6 +1,13 @@
 // Context-Explorer：只读探索子代理。复用 multi-agent 运行时，把探索 token 关在
 // 子代理窗口里，只回紧凑 path:start-end 引用（FastContext 的探索/解题分离）。
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { Type } from "typebox";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getConfig } from "../_shared/runtime-config.js";
 import type { CapabilityProfile } from "../multi-agent/capability.js";
+import { profileToEnv, profileToModel } from "../multi-agent/capability.js";
+import { spawnPiAgent } from "../multi-agent/runner.js";
 import { getEngine } from "./engines.js";
 
 // 改编自 FastContext system.md：只读、并行工具、优先预建索引（codegraph_explore），
@@ -53,4 +60,62 @@ export function buildExploreProfile(engineName: string, indexed: boolean): Capab
 export function extractFinalAnswer(output: string): string {
   const m = output.match(/<final_answer>([\s\S]*?)<\/final_answer>/i);
   return (m ? m[1] : output).trim();
+}
+
+/** 注册 explore_context 工具：在独立只读子代理里探索，回传紧凑引用。 */
+export function registerExploreContext(pi: ExtensionAPI): void {
+  pi.registerTool({
+    name: "explore_context",
+    label: "Explore Context",
+    description:
+      "Delegate a repository question to a read-only exploration sub-agent (separate context window). " +
+      "It prefers the built-in CodeGraph index (codegraph_* tools), falls back to Glob/Grep/Read, and " +
+      "returns a COMPACT set of path:start-end references instead of full file contents.",
+    promptGuidelines: [
+      "For where/how/find questions about THIS repo, call explore_context instead of grepping/reading files yourself — it keeps the exploration tokens out of your context window.",
+      "Pass a precise natural-language query; the sub-agent returns compact path:start-end references you can then open directly.",
+    ],
+    parameters: Type.Object({
+      query: Type.String({ description: "Natural-language question about the codebase to explore." }),
+      max_turns: Type.Optional(Type.Number({ description: "Soft budget for tool-call rounds (default ~6)." })),
+    }),
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
+      // 防嵌套：子代理不得再发起探索（双防线，另见 index.ts 跳过注册 + runner deny）。
+      if (process.env.PI_IS_SUBAGENT === "1") {
+        throw new Error("explore_context 不可在子代理内调用（嵌套探索已被拦截）");
+      }
+      const engineName = getConfig("CODE_INTEL") ?? "codegraph";
+      const indexed = existsSync(join(ctx.cwd, ".codegraph"));
+      const profile = buildExploreProfile(engineName, indexed);
+      const model = getConfig("CODE_INTEL_EXPLORER_MODEL")?.trim() || profileToModel(profile, getConfig);
+      const timeoutMs = Number(getConfig("CODE_INTEL_EXPLORER_TIMEOUT_MS") ?? "") || undefined;
+      const budget = typeof params.max_turns === "number" && params.max_turns > 0 ? params.max_turns : undefined;
+      const task = budget
+        ? `${params.query}\n\n(Budget: about ${budget} tool-call rounds — converge quickly.)`
+        : params.query;
+
+      const r = await spawnPiAgent(ctx.cwd, task, {
+        model,
+        systemPrompt: EXPLORE_SYSTEM_PROMPT,
+        env: profileToEnv(profile),
+        mcp: profile.mcp,
+        timeoutMs,
+        signal: signal ?? undefined,
+        onUpdate: onUpdate
+          ? (u) => onUpdate({ content: [{ type: "text", text: u.text }], details: { streaming: true } })
+          : undefined,
+      });
+      if (!r.ok) {
+        return {
+          content: [{ type: "text", text: `explore_context failed: ${r.error ?? "unknown error"}` }],
+          details: { engine: engineName, indexed, exitCode: r.exitCode },
+          isError: true,
+        };
+      }
+      return {
+        content: [{ type: "text", text: extractFinalAnswer(r.output) || "(no findings)" }],
+        details: { engine: engineName, indexed, model: model ?? null },
+      };
+    },
+  });
 }
