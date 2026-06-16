@@ -72,6 +72,12 @@ pub async fn open_workspace(
     let env = store.settings_env().await;
     store.write_runtime_config().await;
     let runtime_config = store.runtime_path().to_string_lossy().to_string();
+    // Code Intelligence 自动 init 开关（在 env 被 move 进 spawn 闭包前读取）。
+    let auto_init_codegraph = env.get("CODE_INTEL").map(|v| v.as_str() != "off").unwrap_or(true)
+        && env
+            .get("CODE_INTEL_AUTO_INIT")
+            .map(|v| v.as_str() != "0")
+            .unwrap_or(true);
     mgr.get_or_open(&workspace, move || {
         let sink: Arc<dyn EventSink> = Arc::new(TauriSink { app: app2.clone() });
         spawn_pi_client(&app2, ws.clone(), &cwd_for_spawn, sink, env.clone(), &runtime_config)
@@ -115,6 +121,19 @@ pub async fn open_workspace(
         &format!("open_workspace/total:{workspace}"),
         t0.elapsed().as_millis(),
     );
+
+    // Code Intelligence：首次打开未索引项目时后台自动 init（非阻塞，失败仅日志）。
+    if auto_init_codegraph && !cwd.join(".codegraph").is_dir() {
+        let app_for_init = app.clone();
+        let ws_for_init = workspace.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) =
+                crate::commands::code_intel::code_intel_init(app_for_init, ws_for_init).await
+            {
+                eprintln!("[code-intel] auto-init failed: {e}");
+            }
+        });
+    }
 
     Ok(OpenWorkspaceResult {
         restored_session,
