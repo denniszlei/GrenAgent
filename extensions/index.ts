@@ -2,9 +2,12 @@
 // into a branded CLI via DefaultResourceLoader's `extensionFactories` option
 // (no -e / no pi install needed — they're compiled into the product).
 
+import autoTitle from "./auto-title/index.js";
 import checkpoint from "./checkpoint/index.js";
+import loopGuard from "./loop-guard/index.js";
 import codeReview from "./code-review/index.js";
 import imGateway from "./im-gateway/index.js";
+import goal from "./goal/index.js";
 import imageGen from "./image-gen/index.js";
 import knowledgeRag from "./knowledge-rag/index.js";
 import longTermMemory from "./long-term-memory/index.js";
@@ -20,9 +23,12 @@ import webSearch from "./web-search/index.js";
 
 export {
   safety,
+  loopGuard,
+  autoTitle,
   checkpoint,
   todo,
   planMode,
+  goal,
   knowledgeRag,
   longTermMemory,
   webFetch,
@@ -39,9 +45,12 @@ export {
 // Order roughly by general usefulness; safety first so guardrails intercept earliest.
 export const allExtensions = [
   safety,
+  loopGuard,
+  autoTitle,
   checkpoint,
   todo,
   planMode,
+  goal,
   knowledgeRag,
   longTermMemory,
   webFetch,

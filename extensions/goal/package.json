@@ -1,0 +1,21 @@
+{
+  "name": "pi-goal",
+  "version": "0.1.0",
+  "description": "Goal stop-condition + independent judge for the Pi coding agent (prevents optimistic early stop).",
+  "private": true,
+  "type": "module",
+  "keywords": ["pi-package", "pi-extension", "goal"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-agent-core": "*",
+    "vitest": "^4.1.8"
+  }
+}
