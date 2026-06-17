@@ -39,6 +39,7 @@
     "@ast-grep/napi": "^0.43.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cheerio": "^1.2.0",
+    "diff": "^9.0.0",
     "tinyglobby": "^0.2.17"
   }
 }
