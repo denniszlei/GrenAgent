@@ -41,4 +41,12 @@ describe("JsKernel", () => {
     const r = await k.exec("typeof y");
     expect(r.value).toBe("'undefined'");
   });
+
+  it("vm timeout interrupts an infinite loop and the kernel survives", async () => {
+    k = new JsKernel(RUNNER, process.cwd());
+    const r = await k.exec("while (true) {}", { timeoutMs: 500 });
+    expect(r.ok).toBe(false);
+    const ok = await k.exec("1 + 1");
+    expect(ok.value).toBe("2");
+  });
 });

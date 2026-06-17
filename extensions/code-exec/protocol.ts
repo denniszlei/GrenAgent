@@ -15,8 +15,8 @@ export type KernelMessage =
   | { type: "pong"; id: string }
   | { type: string; id?: string; [k: string]: unknown };
 
-export function encodeExec(id: string, code: string): string {
-  return `${JSON.stringify({ type: "exec", id, code })}\n`;
+export function encodeExec(id: string, code: string, timeoutMs?: number): string {
+  return `${JSON.stringify({ type: "exec", id, code, timeoutMs })}\n`;
 }
 
 export function encodeReset(id: string): string {

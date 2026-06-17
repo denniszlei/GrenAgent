@@ -16,7 +16,7 @@ function fmt(args) {
   return args.map((a) => (typeof a === "string" ? a : inspect(a, { depth: 4 }))).join(" ");
 }
 
-function run(code) {
+function run(code, timeoutMs) {
   let stdout = "";
   let stderr = "";
   context.console = {
@@ -40,7 +40,8 @@ function run(code) {
   let ok = true;
   let error = null;
   try {
-    const result = vm.runInContext(code, context, { filename: "<cell>" });
+    // timeout 仅对同步代码生效（第一版无 top-level await）；超时抛错被捕获，内核存活。
+    const result = vm.runInContext(code, context, { filename: "<cell>", timeout: timeoutMs });
     if (result !== undefined) value = inspect(result, { depth: 4 });
   } catch (e) {
     ok = false;
@@ -64,7 +65,7 @@ function handle(line) {
   }
   const id = msg.id;
   if (msg.type === "exec") {
-    emit({ type: "result", id, ...run(msg.code ?? "") });
+    emit({ type: "result", id, ...run(msg.code ?? "", msg.timeoutMs) });
   } else if (msg.type === "reset") {
     context = makeContext();
     emit({ type: "result", id, stdout: "", stderr: "", value: null, ok: true, error: null });

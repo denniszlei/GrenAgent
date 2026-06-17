@@ -72,7 +72,9 @@ export class JsKernel {
   async exec(code: string, opts: ExecOptions = {}): Promise<ExecResult> {
     this.ensure();
     const id = nextId();
-    const timeoutMs = opts.timeoutMs ?? 30_000;
+    const vmTimeoutMs = opts.timeoutMs ?? 30_000;
+    // runner 内 vm 级超时先触发（中断该 cell、保留内核状态）；kernel 级超时多 2s 兜底，仅进程真挂死才杀。
+    const killTimeoutMs = vmTimeoutMs + 2000;
     return new Promise<ExecResult>((resolve, reject) => {
       const p: Pending = { resolve, reject, signal: opts.signal };
       const fail = (msg: string) => {
@@ -81,7 +83,7 @@ export class JsKernel {
         this.restart();
         reject(new Error(msg));
       };
-      p.timer = setTimeout(() => fail(`执行超时（${timeoutMs}ms），已重启内核`), timeoutMs);
+      p.timer = setTimeout(() => fail(`执行超时（${killTimeoutMs}ms），已重启内核`), killTimeoutMs);
       if (opts.signal) {
         if (opts.signal.aborted) {
           fail("已中断");
@@ -91,7 +93,7 @@ export class JsKernel {
         opts.signal.addEventListener("abort", p.onAbort, { once: true });
       }
       this.pending.set(id, p);
-      this.child?.stdin.write(encodeExec(id, code));
+      this.child?.stdin.write(encodeExec(id, code, vmTimeoutMs));
     });
   }
 
