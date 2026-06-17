@@ -23,7 +23,10 @@ export interface AstEditArgs {
   paths: string[];
   dryRun: boolean;
   cwd: string;
+  maxFiles?: number;
 }
+
+export const DEFAULT_MAX_FILES = 50;
 
 function buildResolver(node: SgNode, source: string): MetaResolver {
   return {
@@ -56,7 +59,17 @@ function applyOpsToSource(source: string, lang: CoreLang, ops: AstEditOp[]): { n
 }
 
 export async function runAstEdit(args: AstEditArgs): Promise<AstEditResult> {
+  const maxFiles = args.maxFiles ?? DEFAULT_MAX_FILES;
   const files = await collectFiles(args.paths, args.cwd);
+  if (files.length > maxFiles) {
+    return {
+      files: [],
+      totalReplacements: 0,
+      filesSearched: files.length,
+      applied: false,
+      parseErrors: [`命中 ${files.length} 个文件超过上限 ${maxFiles}，请缩小 paths 或调高 maxFiles`],
+    };
+  }
   const results: AstEditFileResult[] = [];
   const parseErrors: string[] = [];
   let total = 0;

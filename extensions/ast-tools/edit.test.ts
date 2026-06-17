@@ -50,4 +50,20 @@ describe("runAstEdit", () => {
     expect(res.totalReplacements).toBe(1);
     expect(readFileSync(file, "utf8")).toBe("A(1); b(2);\n");
   });
+
+  it("rejects when files exceed maxFiles", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ast-edit-"));
+    writeFileSync(join(root, "a.ts"), "log(1)");
+    writeFileSync(join(root, "b.ts"), "log(2)");
+    const res = await runAstEdit({
+      ops: [{ pat: "log($X)", out: "warn($X)" }],
+      paths: ["*.ts"],
+      dryRun: false,
+      cwd: root,
+      maxFiles: 1,
+    });
+    expect(res.totalReplacements).toBe(0);
+    expect(res.parseErrors[0]).toContain("超过上限");
+    expect(readFileSync(join(root, "a.ts"), "utf8")).toBe("log(1)");
+  });
 });

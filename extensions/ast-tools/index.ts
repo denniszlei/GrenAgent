@@ -50,6 +50,7 @@ export default function (pi: ExtensionAPI) {
       }),
       paths: Type.Array(Type.String(), { description: "文件/目录/glob（>=1）", minItems: 1 }),
       dryRun: Type.Optional(Type.Boolean({ description: "true=只报告不写，默认 false" })),
+      maxFiles: Type.Optional(Type.Number({ description: "命中文件数上限，默认 50；超出则拒绝改写" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
@@ -59,6 +60,7 @@ export default function (pi: ExtensionAPI) {
           paths: params.paths,
           dryRun: params.dryRun ?? false,
           cwd: ctx.cwd,
+          maxFiles: params.maxFiles,
         });
         const verb = res.applied ? "已改写" : "预览（未写盘）";
         const lines = res.files.map((f) => `${f.rel}: ${f.replacements}`);
