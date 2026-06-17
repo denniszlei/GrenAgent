@@ -151,7 +151,7 @@ omp 工具注册表（`packages/coding-agent/src/tools/index.ts:415` `BUILTIN_TO
 - **无前置依赖**：不依赖 internal-urls 骨架。
 - **铺路效应**：顺带落地「预览→接受」雏形，为波2 `resolve` 复用。
 
-详细设计另起 `docs/superpowers/specs/2026-06-17-ast-tools-design.md`（待 brainstorming 细化后产出），覆盖：工具 schema（`ast_grep` 查询 / `ast_edit` 重写）、ast-grep 库集成、预览→接受流程、语言支持范围、错误与降级、测试。
+详细设计见 `docs/superpowers/specs/2026-06-17-ast-tools-design.md`，实现计划见 `docs/superpowers/plans/2026-06-17-ast-tools.md`。**已实现并通过测试**（`extensions/ast-tools/`，7 任务 TDD，15 测试通过）。实测校准：`@ast-grep/napi@0.43` 核心只内置 5 种语言（js/jsx/ts/tsx/css/html），其余语言（Python/Go/Rust 等）需 `registerDynamicLanguage` + 动态库，列为后续增强。
 
 ## 9. 横切关注点
 

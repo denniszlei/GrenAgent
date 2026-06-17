@@ -1,7 +1,7 @@
 # ast-tools：结构化代码查询与重写（ast_grep + ast_edit）设计
 
 - 日期：2026-06-17
-- 状态：设计已批准（brainstorming 产出），待 writing-plans 出实现计划
+- 状态：已实现并通过测试（`extensions/ast-tools/`，7 任务 TDD，15 测试通过）。本文据 `@ast-grep/napi@0.43` 实测校准
 - 主题：把 omp 的 `ast_grep`（结构化查询）/ `ast_edit`（结构化重写）以**纯扩展**形式移植进 Pi。底层改用 ast-grep 官方 `@ast-grep/napi`（omp 用自家 `@oh-my-pi/pi-natives`，Pi 够不到）。
 - 上游对标：`oh-my-pi/packages/coding-agent/src/tools/ast-grep.ts`、`ast-edit.ts`
 - 路线图归属：`2026-06-17-oh-my-pi-parity-roadmap-design.md` 波1 #1（第一个深入子项目）
@@ -35,10 +35,11 @@ omp 提供 `ast_grep`（结构化查询，50+ tree-sitter 语法）与 `ast_edit
 
 来源：ast-grep 官方 JS API 文档 / `crates/napi/types/api.d.ts`。
 
-核心 API：
+核心 API（`@ast-grep/napi@0.43` 实测）：
 ```
-import { parse, Lang } from '@ast-grep/napi'
-const root = parse(Lang.TypeScript, source).root()
+import { parse } from '@ast-grep/napi'
+// 注意：0.43 的 Lang enum 运行时为空对象 {}，lang 用字符串字面量："JavaScript"/"TypeScript"/"Tsx"/"Css"/"Html"
+const root = parse('TypeScript', source).root()
 const nodes = root.findAll('console.log($A)')      // SgNode[]
 const edits = nodes.map(n => n.replace(text))       // Edit{startPos,endPos,insertedText}
 const newSource = root.commitEdits(edits)           // string
@@ -47,14 +48,14 @@ const newSource = root.commitEdits(edits)           // string
 
 **关键限制（决定 ast_edit 实现）**：`@ast-grep/napi` 的 `node.replace(text)` **不会展开 `$VAR`**（与 CLI 不同）。官方原文：「Metavariable will not be replaced in the replace method. You need to create a string using getMatch(var_name)」。
 
-因此 `ast_edit` 必须**自己实现模板展开**：对每个匹配 node，把 `out` 模板里的 `$VAR` 用 `getMatch('VAR').text()`、`$$$ARGS` 用 `getMultipleMatches('ARGS')` 拼接的文本替换，再 `node.replace(展开后文本)`。
+因此 `ast_edit` 必须**自己实现模板展开**：对每个匹配 node，把 `out` 模板里的 `$VAR` 用 `getMatch('VAR').text()`、`$$$ARGS` 用 `getMultipleMatches('ARGS')` 首尾节点的 range 在源码上切片（实测多匹配含逗号等分隔符节点，故切片以保留原始分隔），再 `node.replace(展开后文本)`。
 
 辅助：`findInFiles(lang, {paths, matcher}, cb)` 多文件并行（按单一 lang），`parseAsync` 异步解析。第一版可先用「自己遍历文件 + parse + findAll」，性能优化（findInFiles 按语言分组）留增强。
 
 ## 3. 包结构与依赖
 
-- 新增依赖：`@ast-grep/napi`（MIT，prebuilt napi）。需在实现时核对其 prebuilt 平台覆盖（`win32-x64`/`darwin-x64`/`darwin-arm64`/`linux-x64`/`linux-arm64`）与 Pi 运行环境匹配。
-- 语言：`@ast-grep/napi` 内置 `Lang`（JavaScript/TypeScript/Tsx/Python/Rust/Go/Java/C/Cpp/CSharp/Ruby/Php/Html/Css/Json/Yaml/Bash/Kotlin/Lua/Scala/Swift/Elixir/Haskell 等），按文件扩展名自动判定，不限制。
+- 新增依赖：`@ast-grep/napi@^0.43`（MIT，prebuilt napi）+ `tinyglobby`（glob 收集）。0.43 prebuilt 覆盖 win32-x64/ia32/arm64、darwin-x64/arm64、linux-x64/arm64(gnu/musl) 等。
+- 语言（实测校准）：`@ast-grep/napi@0.43` 核心包**只内置 5 种**——JavaScript / TypeScript / Tsx / Css / Html（即 js/jsx/ts/tsx/css/html）。其余语言（Python/Go/Rust/Java/...）需 `registerDynamicLanguage` + 每平台 tree-sitter 动态库（@experimental），列为**后续增强**。第一版按扩展名映射到这 5 种。
 
 ## 4. 工具 schema（对齐 omp）
 
@@ -72,8 +73,8 @@ ast_edit:
 
 ## 5. 组件与数据流（`extensions/ast-tools/`）
 
-- `index.ts` —— 注册 `ast_grep` + `ast_edit`；napi 加载失败则不注册（fail-soft）。
-- `lang.ts` —— 扩展名 → `Lang` 映射表 + 文件收集（目录/glob 展开，复用 `node:fs` 或 Pi 现有 glob）。
+- `index.ts` —— 注册 `ast_grep` + `ast_edit`；napi 用 **lazy `import()`**（在 execute 内）：原生加载失败时工具返回错误文本（fail-soft），不拖垮其他扩展加载。
+- `lang.ts` —— 扩展名 → 语言字符串（`CoreLang` 字面量）映射 + `collectFiles`（`tinyglobby` 展开目录/glob）。
 - `grep.ts` —— `ast_grep` 执行：收集文件 → 按 ext 定 lang → `parse` → `findAll(pat)` → 聚合排序 → 截断/skip → 格式化（路径 + 行列 + code frame）。
 - `rewrite.ts` —— **metavariable 模板展开**：输入 node + `out`，输出展开后字符串（处理 `$VAR`、`$$$ARGS`、转义 `$$`）。
 - `edit.ts` —— `ast_edit` 执行：收集文件 → `parse` → 对每个 op `findAll(pat)` → `rewrite` 展开 → `replace` → `commitEdits` → `dryRun?` 报告 : 写回 → 返回 `{file, replacements}[]` 摘要。
