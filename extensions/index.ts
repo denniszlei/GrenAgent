@@ -10,6 +10,7 @@ import rulebook from "./rulebook/index.js";
 import codeReview from "./code-review/index.js";
 import codeSearch from "./code-search/index.js";
 import astTools from "./ast-tools/index.js";
+import github from "./github/index.js";
 import batchTools from "./batch-tools/index.js";
 import diagnostics from "./diagnostics/index.js";
 import imGateway from "./im-gateway/index.js";
@@ -65,6 +66,7 @@ export {
   lsp,
   codeSearch,
   astTools,
+  github,
   batchTools,
   codeExec,
   hashline,
@@ -102,6 +104,7 @@ export const allExtensions = [
   lsp,
   codeSearch,
   astTools,
+  github,
   batchTools,
   codeExec,
   hashline,
