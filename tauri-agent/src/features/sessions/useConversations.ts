@@ -1,8 +1,10 @@
 import { useMemo } from 'react';
 import type { SessionInfo } from '../../lib/pi';
-import { mergeAllSessions } from '../../lib/mergeSessions';
+import { filterDeletedSessions, mergeAllSessions } from '../../lib/mergeSessions';
 import { useSessionStore } from '../../store/session';
 import { isUnder } from '../../lib/pathUtils';
+import { pathsEquivalent } from '../../lib/pathUtils';
+import { useSidebarPrefsStore } from '../../stores/sidebarPrefsStore';
 
 export interface ConversationItem {
   cwd: string;
@@ -25,11 +27,14 @@ export function buildConversations(
   worksDir: string,
   current: string,
   keyword: string,
+  deletedCwds: string[] = [],
+  pinnedCwds: string[] = [],
 ): ConversationItem[] {
   if (!worksDir) return [];
   const byCwd = new Map<string, SessionInfo[]>();
   for (const s of all) {
     if (!s.cwd || !isUnder(s.cwd, worksDir)) continue;
+    if (deletedCwds.some((cwd) => pathsEquivalent(cwd, s.cwd ?? ''))) continue;
     if (!byCwd.has(s.cwd)) byCwd.set(s.cwd, []);
     byCwd.get(s.cwd)!.push(s);
   }
@@ -47,18 +52,34 @@ export function buildConversations(
   }
   const kw = keyword.trim().toLowerCase();
   if (kw) items = items.filter((c) => c.name.toLowerCase().includes(kw));
-  items.sort((a, b) => (b.timestamp ?? '').localeCompare(a.timestamp ?? ''));
+  items.sort((a, b) => {
+    const ap = pinnedCwds.some((cwd) => pathsEquivalent(cwd, a.cwd));
+    const bp = pinnedCwds.some((cwd) => pathsEquivalent(cwd, b.cwd));
+    if (ap !== bp) return ap ? -1 : 1;
+    return (b.timestamp ?? '').localeCompare(a.timestamp ?? '');
+  });
   return items;
 }
 
 export function useConversations(): ConversationItem[] {
   const all = useSessionStore((s) => s.allSessions);
   const optimistic = useSessionStore((s) => s.optimisticSessions);
+  const deletedSessionPaths = useSessionStore((s) => s.deletedSessionPaths);
   const worksDir = useSessionStore((s) => s.worksDir);
   const current = useSessionStore((s) => s.activeWorkspace);
   const keyword = useSessionStore((s) => s.searchKeyword);
+  const deletedCwds = useSessionStore((s) => s.deletedConversationCwds);
+  const pinnedCwds = useSidebarPrefsStore((s) => s.pinnedConversations);
   return useMemo(
-    () => buildConversations(mergeAllSessions(all, optimistic), worksDir, current, keyword),
-    [all, optimistic, worksDir, current, keyword],
+    () =>
+      buildConversations(
+        filterDeletedSessions(mergeAllSessions(all, optimistic), deletedSessionPaths),
+        worksDir,
+        current,
+        keyword,
+        deletedCwds,
+        pinnedCwds,
+      ),
+    [all, optimistic, deletedSessionPaths, worksDir, current, keyword, deletedCwds, pinnedCwds],
   );
 }

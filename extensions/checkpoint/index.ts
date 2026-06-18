@@ -98,7 +98,7 @@ export default function (pi: ExtensionAPI) {
       if (sub === "diff") {
         const cp = store.getById(parts[1] ?? "");
         if (!cp) {
-          ctx.ui.notify("Usage: /checkpoint diff <id>", "warn");
+          ctx.ui.notify("Usage: /checkpoint diff <id>", "warning");
           return;
         }
         await ensureRepo(gitdir, ctx.cwd);
@@ -110,7 +110,7 @@ export default function (pi: ExtensionAPI) {
       if (sub === "revert") {
         const cp = store.getById(parts[1] ?? "");
         if (!cp) {
-          ctx.ui.notify("Usage: /checkpoint revert <id>", "warn");
+          ctx.ui.notify("Usage: /checkpoint revert <id>", "warning");
           return;
         }
         await ensureRepo(gitdir, ctx.cwd);
@@ -125,7 +125,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      ctx.ui.notify("Usage: /checkpoint list | create [label] | diff <id> | revert <id> | clear", "warn");
+      ctx.ui.notify("Usage: /checkpoint list | create [label] | diff <id> | revert <id> | clear", "warning");
     },
   });
 }

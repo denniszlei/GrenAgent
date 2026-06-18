@@ -45,6 +45,12 @@ interface ResizeHandleProps {
   expand?: boolean;
   /** DraggablePanel 折叠状态变化回调（自带手柄/hover 触发时） */
   onExpandChange?: (expand: boolean) => void;
+  /**
+   * 面板底色，需与 children 的实际背景一致。折叠/展开 0.2s 动画里 children 会淡到 opacity:0，
+   * 此时露出的是 DraggablePanel 自身底色；不传则回退到 colorBgLayout（偏黑），与内容区
+   * （colorBgContainer）形成黑色闪烁/割裂。传入匹配色即可让动画期间无色差。
+   */
+  backgroundColor?: string;
   children?: ReactNode;
 }
 
@@ -57,6 +63,7 @@ export function ResizeHandle({
   onResizeLive,
   expand = true,
   onExpandChange,
+  backgroundColor,
   children,
 }: ResizeHandleProps) {
   const isVertical = placement === 'top' || placement === 'bottom';
@@ -102,6 +109,7 @@ export function ResizeHandle({
       placement={placement}
       expandable={false}
       expand={expand}
+      backgroundColor={backgroundColor}
       className={isVertical ? styles.fillWidth : styles.fillHeight}
       size={isVertical ? { width: '100%', height: clampedSize } : { height: '100%', width: clampedSize }}
       minWidth={isVertical ? undefined : minSize}

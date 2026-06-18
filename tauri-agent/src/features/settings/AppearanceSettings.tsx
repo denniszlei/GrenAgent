@@ -10,6 +10,7 @@ import {
 import { createStaticStyles, cssVar, cx } from 'antd-style';
 import { Monitor, Moon, Sun, type LucideIcon } from 'lucide-react';
 import { useThemeStore, type Appearance, type NeutralColor, type PrimaryColor } from '../../stores/themeStore';
+import { COLOR_SCHEMES } from '../../theme/colorSchemes';
 import { SettingCard } from './SettingCard';
 
 const APPEARANCES: { value: Appearance; label: string; icon: LucideIcon }[] = [
@@ -58,6 +59,14 @@ const styles = createStaticStyles(({ css }) => ({
   themeLabel: css`
     font-size: 12px;
   `,
+  swatch: css`
+    display: flex;
+    width: 44px;
+    height: 22px;
+    overflow: hidden;
+    border: 1px solid ${cssVar.colorBorderSecondary};
+    border-radius: 6px;
+  `,
 }));
 
 /** 外观设置：主题（浅/深/跟随系统）+ 主题色 + 中性色，直连 themeStore（前端持久化，非后端 config）。 */
@@ -68,6 +77,8 @@ export function AppearanceSettings() {
   const setPrimaryColor = useThemeStore((s) => s.setPrimaryColor);
   const neutralColor = useThemeStore((s) => s.neutralColor);
   const setNeutralColor = useThemeStore((s) => s.setNeutralColor);
+  const colorScheme = useThemeStore((s) => s.colorScheme);
+  const setColorScheme = useThemeStore((s) => s.setColorScheme);
 
   return (
     <>
@@ -83,6 +94,26 @@ export function AppearanceSettings() {
             >
               <Icon icon={a.icon} size={20} />
               <span className={styles.themeLabel}>{a.label}</span>
+            </button>
+          ))}
+        </div>
+      </SettingCard>
+      <SettingCard title="配色方案">
+        <div className={styles.themeRow}>
+          {COLOR_SCHEMES.map((scheme) => (
+            <button
+              key={scheme.id}
+              type="button"
+              data-testid={`scheme-${scheme.id}`}
+              className={cx(styles.themeCard, colorScheme === scheme.id && styles.themeCardActive)}
+              onClick={() => setColorScheme(scheme.id)}
+            >
+              <span className={styles.swatch}>
+                <span style={{ flex: 1, background: scheme.preview[0] }} />
+                <span style={{ flex: 1, background: scheme.preview[1] }} />
+                <span style={{ flex: 1, background: scheme.preview[2] }} />
+              </span>
+              <span className={styles.themeLabel}>{scheme.label}</span>
             </button>
           ))}
         </div>

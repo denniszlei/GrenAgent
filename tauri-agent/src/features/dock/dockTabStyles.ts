@@ -19,7 +19,8 @@ export const dockTabStyles = createStaticStyles(({ css }) => ({
     height: ${HEADER_HEIGHT}px;
     padding: 0 8px;
     border-block-end: 1px solid ${cssVar.colorBorderSecondary};
-    background: ${cssVar.colorBgElevated};
+    /* 透明继承面板底色，与主列/侧栏顶栏一致，避免右栏顶栏成更亮色块。 */
+    background: transparent;
   `,
   tabs: css`
     display: flex;

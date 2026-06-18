@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "tauri-agent",
+  "productName": "GrenAgent",
   "version": "0.1.0",
   "identifier": "com.rxstudio.tauri-agent",
   "build": {
@@ -14,9 +14,11 @@
     "windows": [
       {
         "label": "main",
-        "title": "tauri-agent",
+        "title": "GrenAgent",
         "width": 800,
         "height": 600,
+        "minWidth": 720,
+        "minHeight": 520,
         "decorations": false,
         "backgroundColor": "#0d0d0d"
       }

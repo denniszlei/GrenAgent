@@ -24,3 +24,21 @@ describe('ToolExecution web_search inspector', { timeout: 30_000 }, () => {
     expect(document.body.textContent).toContain('（12）');
   });
 });
+
+describe('ToolExecution bash terminal card', { timeout: 30_000 }, () => {
+  it('renders command with prompt and output inside a terminal card', () => {
+    wrap(
+      <ToolExecution
+        toolName="bash"
+        args={{ command: 'echo hi' }}
+        result={{ content: [{ type: 'text', text: 'hi there' }] }}
+        status="running"
+      />,
+    );
+    // 命令文本单独成节点（终端卡内 $ 提示符后）；输出、bash 标签、提示符同时可见。
+    expect(screen.getByText('echo hi')).toBeTruthy();
+    expect(document.body.textContent).toContain('hi there');
+    expect(document.body.textContent).toContain('bash');
+    expect(document.body.textContent).toContain('$');
+  });
+});

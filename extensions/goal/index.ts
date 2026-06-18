@@ -1,6 +1,8 @@
-// goal: set a session completion condition; on agent_end an independent judge
-// LLM decides whether it is actually met. If not, re-enter (triggerTurn) with
-// the reason until met / react cap / user abort. Fail-open on any judge failure.
+// goal: set a session completion condition AND immediately drive the agent to
+// pursue it (the condition becomes a triggered user turn). On agent_end an
+// independent judge decides whether it is actually met; if not, re-enter with
+// the reason until met / react cap / user abort. Pausing suspends judging and
+// re-entry. Fail-open on any judge failure so a flaky judge never traps the user.
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getConfig } from "../_shared/runtime-config.js";
 import { type AskFn, askLlm, resolveModel } from "./llm.js";
@@ -16,8 +18,14 @@ export default function (pi: ExtensionAPI) {
 
   const persist = () => pi.appendEntry("goal", state ?? null);
 
+  // 推送结构化状态给前端（pill 渲染需要 condition + paused + react）。
   const setStatus = (ctx: ExtensionContext) =>
-    ctx.ui.setStatus("goal", state ? `goal: ${state.condition.slice(0, 24)}` : undefined);
+    ctx.ui.setStatus(
+      "goal",
+      state
+        ? JSON.stringify({ condition: state.condition, paused: state.paused, react: state.react })
+        : undefined,
+    );
 
   const makeAsk = (ctx: ExtensionContext): AskFn | undefined => {
     const model = resolveModel(
@@ -36,18 +44,46 @@ export default function (pi: ExtensionAPI) {
   };
 
   pi.registerCommand("goal", {
-    description: "设定/清除会话完成条件：/goal <条件> | /goal clear",
+    description: "设定会话目标并驱动执行：/goal <条件> | /goal pause | /goal resume | /goal clear",
     handler: async (args, ctx) => {
       const text = args.trim();
-      if (!text || text === "clear") {
+
+      if (text === "" || text === "clear" || text === "reset") {
         clear(ctx);
         ctx.ui.notify("已清除目标。", "info");
         return;
       }
-      state = { condition: text, react: 0 };
+
+      if (text === "pause") {
+        if (!state) {
+          ctx.ui.notify("当前没有生效的目标。", "warning");
+          return;
+        }
+        state.paused = true;
+        persist();
+        setStatus(ctx);
+        ctx.ui.notify("目标已暂停，期间不再自动催进度。", "info");
+        return;
+      }
+
+      if (text === "resume") {
+        if (!state) {
+          ctx.ui.notify("当前没有生效的目标。", "warning");
+          return;
+        }
+        state.paused = false;
+        persist();
+        setStatus(ctx);
+        ctx.ui.notify("目标已恢复。", "info");
+        return;
+      }
+
+      // 设定（或覆盖）目标，并立刻把条件作为一轮用户消息驱动 agent 开始执行。
+      state = { condition: text, react: 0, paused: false };
       persist();
       setStatus(ctx);
-      ctx.ui.notify(`已设定目标：${text}`, "info");
+      ctx.ui.notify(`已设定目标并开始执行：${text}`, "info");
+      pi.sendMessage({ customType: "goal-start", content: text, display: true }, { triggerTurn: true });
     },
   });
 
@@ -57,7 +93,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("agent_end", async (event, ctx) => {
-    if (!enabled() || !state) return;
+    if (!enabled() || !state || state.paused) return;
     if (ctx.signal?.aborted) return; // user abort → do not re-enter
 
     const ask = makeAsk(ctx);

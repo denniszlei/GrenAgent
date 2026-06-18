@@ -19,9 +19,11 @@ describe('ConversationRow', () => {
         item={item}
         active={false}
         running={false}
+        pinned={false}
         editing={false}
         onOpen={onOpen}
         onDelete={vi.fn()}
+        onPinToggle={vi.fn()}
         onSubmitRename={vi.fn()}
         onRequestRename={vi.fn()}
       />,
@@ -37,9 +39,11 @@ describe('ConversationRow', () => {
         item={item}
         active={false}
         running={false}
+        pinned={false}
         editing
         onOpen={vi.fn()}
         onDelete={vi.fn()}
+        onPinToggle={vi.fn()}
         onSubmitRename={onSubmitRename}
         onRequestRename={vi.fn()}
       />,

@@ -80,6 +80,14 @@ const useStyles = createStyles(({ css, token }) => ({
     overflow-y: auto;
     padding: 20px 24px;
   `,
+  providersHost: css`
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 20px 24px;
+  `,
   pageTitle: css`
     font-size: 18px;
     font-weight: 600;
@@ -88,9 +96,6 @@ const useStyles = createStyles(({ css, token }) => ({
   `,
   inner: css`
     max-width: 720px;
-  `,
-  innerWide: css`
-    max-width: none;
   `,
   footer: css`
     display: flex;
@@ -160,48 +165,55 @@ export function SettingsPanel() {
           })}
         </nav>
         <div className={styles.content}>
-          <div className={styles.scroll}>
-            <div className={cx(styles.inner, activeId === 'providers' && styles.innerWide)}>
+          {activeId === 'providers' ? (
+            <div className={styles.providersHost}>
               <div className={styles.pageTitle}>{cat.title}</div>
-              {activeId === 'appearance' ? (
-                <AppearanceSettings />
-              ) : activeId === 'providers' ? (
-                <ProvidersSettings />
-              ) : (
-                sections.map((sec, i) => (
-                  <SettingCard key={sec.title || i} title={sec.title || undefined}>
-                    {sec.fields.map((f) =>
-                      f.type === 'capability' ? (
-                        <CapabilityModelField key={f.key} field={f} values={values} setValue={setValue} />
-                      ) : (
-                        <SettingFieldInput
-                          key={f.key}
-                          field={f}
-                          value={values[f.key] ?? ''}
-                          onChange={(v) => setValue(f.key, v)}
-                        />
-                      ),
-                    )}
-                  </SettingCard>
-                ))
-              )}
+              <ProvidersSettings />
             </div>
-          </div>
-          {showSaveBar ? (
-            <div className={styles.footer}>
-              <span className={cx(styles.footerMsg, !!error && styles.footerMsgError)}>
-                {error ? error : loading ? '加载中…' : dirty ? '有未保存改动' : '手动保存，无需重启'}
-              </span>
-              <button
-                data-testid="set-save"
-                onClick={() => void persist()}
-                disabled={saving || !dirty}
-                className={styles.saveBtn}
-              >
-                {saving ? '保存中…' : '保存'}
-              </button>
-            </div>
-          ) : null}
+          ) : (
+            <>
+              <div className={styles.scroll}>
+                <div className={styles.inner}>
+                  <div className={styles.pageTitle}>{cat.title}</div>
+                  {activeId === 'appearance' ? (
+                    <AppearanceSettings />
+                  ) : (
+                    sections.map((sec, i) => (
+                      <SettingCard key={sec.title || i} title={sec.title || undefined}>
+                        {sec.fields.map((f) =>
+                          f.type === 'capability' ? (
+                            <CapabilityModelField key={f.key} field={f} values={values} setValue={setValue} />
+                          ) : (
+                            <SettingFieldInput
+                              key={f.key}
+                              field={f}
+                              value={values[f.key] ?? ''}
+                              onChange={(v) => setValue(f.key, v)}
+                            />
+                          ),
+                        )}
+                      </SettingCard>
+                    ))
+                  )}
+                </div>
+              </div>
+              {showSaveBar ? (
+                <div className={styles.footer}>
+                  <span className={cx(styles.footerMsg, !!error && styles.footerMsgError)}>
+                    {error ? error : loading ? '加载中…' : dirty ? '有未保存改动' : '手动保存，无需重启'}
+                  </span>
+                  <button
+                    data-testid="set-save"
+                    onClick={() => void persist()}
+                    disabled={saving || !dirty}
+                    className={styles.saveBtn}
+                  >
+                    {saving ? '保存中…' : '保存'}
+                  </button>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
       </div>
     </Flexbox>

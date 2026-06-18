@@ -4,7 +4,9 @@
 //
 // Tools (LLM-callable):
 //   memory_save({ text, category?, scope? })  - persist a memory
-//   memory_recall({ query, topK? })           - recall across both scopes
+//   memory_recall({ query, topK? })           - recall across both scopes (returns ids)
+//   memory_update({ id, text?, category? })   - edit an existing memory by id
+//   memory_delete({ id })                     - delete a memory by id
 // Command:
 //   /memory list | /memory forget <id> | /memory clear [project|global|all]
 //
@@ -136,7 +138,15 @@ export default function (pi: ExtensionAPI) {
   };
 
   pi.on("session_start", async (_event, ctx) => {
-    ensureStores(ctx.cwd);
+    // 后台预热 store，不阻塞 session_start（避免给冷启动/切换叠加同步 DB 打开成本）。
+    // before_agent_start / 各工具仍会 ensureStores，故即便预热未跑完也不影响正确性。
+    setTimeout(() => {
+      try {
+        ensureStores(ctx.cwd);
+      } catch {
+        /* 预热失败无害，首次使用时会重试 */
+      }
+    }, 0);
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
@@ -223,7 +233,7 @@ export default function (pi: ExtensionAPI) {
       const summary = ops.map((o) => o.op).join(",");
       if (smartNotice()) {
         const note = noticeFor(ops);
-        if (note) ctx.ui.notify(`🧠 ${note}`, "info");
+        if (note) ctx.ui.notify(note, "info");
       }
       return {
         content: [{ type: "text", text: `Memory consolidated (${scope}): ${summary}` }],
@@ -255,7 +265,7 @@ export default function (pi: ExtensionAPI) {
       const body = hits
         .map(
           (h, i) =>
-            `${i + 1}. ${h.memory.category ? `[${h.memory.category}] ` : ""}${h.memory.text} (${h.scope}, score ${h.score.toFixed(3)})`,
+            `${i + 1}. id=${h.memory.id} ${h.memory.category ? `[${h.memory.category}] ` : ""}${h.memory.text} (${h.scope}, score ${h.score.toFixed(3)})`,
         )
         .join("\n");
       return {
@@ -265,9 +275,81 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  pi.registerTool({
+    name: "memory_update",
+    label: "Update Memory",
+    description:
+      "Update an existing memory by id: change its text and/or category. " +
+      "First call memory_recall to get the id, then update that memory instead of saving a near-duplicate. " +
+      "Provide at least one of text/category; an empty category string clears the category.",
+    promptGuidelines: [
+      "Prefer memory_update over memory_save when correcting/refining a memory that already exists.",
+      "Recall the id first; never guess ids.",
+    ],
+    parameters: Type.Object({
+      id: Type.String({ description: "Memory id to update (from memory_recall)" }),
+      text: Type.Optional(Type.String({ description: "New text; omit to keep current" })),
+      category: Type.Optional(
+        Type.String({ description: "New category (preference/decision/convention/fact); '' clears it; omit to keep current" }),
+      ),
+    }),
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const id = (params.id ?? "").trim();
+      if (!id) throw new Error("memory id must be non-empty");
+      if (params.text === undefined && params.category === undefined) {
+        throw new Error("provide text and/or category to update");
+      }
+      const { project, global } = ensureStores(ctx.cwd);
+      const config = await resolveEmbeddingConfig(ctx.modelRegistry);
+      const fields: { text?: string; category?: string | null } = {};
+      if (params.text !== undefined) fields.text = params.text.trim();
+      if (params.category !== undefined) {
+        const c = params.category.trim();
+        fields.category = c === "" ? null : c;
+      }
+      const sig = signal ?? undefined;
+      const r =
+        (await project.update(id, fields, config, "manual update via tool", null, sig)) ??
+        (await global.update(id, fields, config, "manual update via tool", null, sig));
+      if (!r) throw new Error(`No memory with id ${id}`);
+      return {
+        content: [{ type: "text", text: `Updated memory ${id} (v${r.version}).` }],
+        details: { id, version: r.version, fields },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "memory_delete",
+    label: "Delete Memory",
+    description:
+      "Delete a memory by id (obtained from memory_recall). Use to remove an outdated, incorrect, " +
+      "or duplicate memory. The deletion is recorded in history and can be rolled back via /memory rollback.",
+    promptGuidelines: [
+      "Recall the id first via memory_recall; never guess ids.",
+      "Use when a memory is obsolete, wrong, or a duplicate of a newer one.",
+    ],
+    parameters: Type.Object({
+      id: Type.String({ description: "Memory id to delete (from memory_recall)" }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const id = (params.id ?? "").trim();
+      if (!id) throw new Error("memory id must be non-empty");
+      const { project, global } = ensureStores(ctx.cwd);
+      const ok =
+        project.remove(id, "manual delete via tool", null) ||
+        global.remove(id, "manual delete via tool", null);
+      if (!ok) throw new Error(`No memory with id ${id}`);
+      return {
+        content: [{ type: "text", text: `Deleted memory ${id}.` }],
+        details: { id, deleted: true },
+      };
+    },
+  });
+
   pi.registerCommand("memory", {
     description:
-      "Manage memory: /memory list | /memory add <text> | /memory forget <id> | /memory clear [project|global|all] | /memory history [id] | /memory rollback <historyId>",
+      "Manage memory: /memory list | /memory add <text> | /memory edit <id> [--cat <category|none>] <text> | /memory forget <id> | /memory clear [project|global|all] | /memory history [id] | /memory rollback <historyId>",
     handler: async (args, ctx) => {
       const { project, global } = ensureStores(ctx.cwd);
       const parts = args.trim().split(/\s+/).filter(Boolean);
@@ -276,7 +358,7 @@ export default function (pi: ExtensionAPI) {
       if (sub === "add") {
         const text = parts.slice(1).join(" ").trim();
         if (!text) {
-          ctx.ui.notify("Usage: /memory add <text>", "warn");
+          ctx.ui.notify("Usage: /memory add <text>", "warning");
           return;
         }
         const ops = await smartSave({ ...ctx, signal: ctx.signal ?? undefined }, text, "project");
@@ -284,15 +366,43 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      if (sub === "edit") {
+        const id = parts[1];
+        let rest = parts.slice(2);
+        let category: string | null | undefined;
+        if (rest[0] === "--cat" || rest[0] === "--category") {
+          const cat = rest[1] ?? "";
+          category = cat === "" || cat === "none" ? null : cat;
+          rest = rest.slice(2);
+        }
+        const text = rest.join(" ").trim();
+        if (!id || (!text && category === undefined)) {
+          ctx.ui.notify("Usage: /memory edit <id> [--cat <category|none>] <new text>", "warning");
+          return;
+        }
+        const config = await resolveEmbeddingConfig(ctx.modelRegistry);
+        const fields: { text?: string; category?: string | null } = {};
+        if (text) fields.text = text;
+        if (category !== undefined) fields.category = category;
+        const r =
+          (await project.update(id, fields, config, "manual edit", null, ctx.signal ?? undefined)) ??
+          (await global.update(id, fields, config, "manual edit", null, ctx.signal ?? undefined));
+        ctx.ui.notify(
+          r ? `Updated memory ${id} (v${r.version}).` : `No memory with id ${id}.`,
+          r ? "success" : "warning",
+        );
+        return;
+      }
+
       if (sub === "promote") {
         const id = parts[1];
         if (!id) {
-          ctx.ui.notify("Usage: /memory promote <id>", "warn");
+          ctx.ui.notify("Usage: /memory promote <id>", "warning");
           return;
         }
         const m = project.list(1000).find((x) => x.id === id);
         if (!m) {
-          ctx.ui.notify(`No project memory ${id}.`, "warn");
+          ctx.ui.notify(`No project memory ${id}.`, "warning");
           return;
         }
         const config = await resolveEmbeddingConfig(ctx.modelRegistry);
@@ -322,11 +432,11 @@ export default function (pi: ExtensionAPI) {
       if (sub === "forget") {
         const id = parts[1];
         if (!id) {
-          ctx.ui.notify("Usage: /memory forget <id>", "warn");
+          ctx.ui.notify("Usage: /memory forget <id>", "warning");
           return;
         }
         const ok = project.forget(id) || global.forget(id);
-        ctx.ui.notify(ok ? `Forgot memory ${id}.` : `No memory with id ${id}.`, ok ? "success" : "warn");
+        ctx.ui.notify(ok ? `Forgot memory ${id}.` : `No memory with id ${id}.`, ok ? "success" : "warning");
         return;
       }
 
@@ -347,18 +457,18 @@ export default function (pi: ExtensionAPI) {
       if (sub === "rollback") {
         const hid = Number(parts[1]);
         if (!Number.isFinite(hid)) {
-          ctx.ui.notify("Usage: /memory rollback <historyId>", "warn");
+          ctx.ui.notify("Usage: /memory rollback <historyId>", "warning");
           return;
         }
         const config = await resolveEmbeddingConfig(ctx.modelRegistry);
         const r = (await project.rollback(hid, config)) ?? (await global.rollback(hid, config));
-        ctx.ui.notify(r ? `Rolled back to history #${hid} (memory ${r.id}).` : `No history #${hid}.`, r ? "success" : "warn");
+        ctx.ui.notify(r ? `Rolled back to history #${hid} (memory ${r.id}).` : `No history #${hid}.`, r ? "success" : "warning");
         return;
       }
 
       ctx.ui.notify(
-        "Usage: /memory list | /memory add <text> | /memory forget <id> | /memory clear [project|global|all] | /memory history [id] | /memory rollback <historyId>",
-        "warn",
+        "Usage: /memory list | /memory add <text> | /memory edit <id> [--cat <category|none>] <text> | /memory forget <id> | /memory clear [project|global|all] | /memory history [id] | /memory rollback <historyId>",
+        "warning",
       );
     },
   });

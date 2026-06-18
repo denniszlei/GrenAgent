@@ -54,11 +54,15 @@ fn read_kb_stats(path: &Path) -> Result<KbStats, String> {
         .query_row("SELECT COUNT(*) FROM chunks", [], |r| r.get(0))
         .map_err(|e| e.to_string())?;
     let sources: i64 = conn
-        .query_row("SELECT COUNT(DISTINCT source) FROM chunks", [], |r| r.get(0))
+        .query_row("SELECT COUNT(DISTINCT source) FROM chunks", [], |r| {
+            r.get(0)
+        })
         .map_err(|e| e.to_string())?;
     // model 行可能不存在（keyword 模式）；用 .ok() 容忍。
     let model: Option<String> = conn
-        .query_row("SELECT value FROM meta WHERE key = 'model'", [], |r| r.get(0))
+        .query_row("SELECT value FROM meta WHERE key = 'model'", [], |r| {
+            r.get(0)
+        })
         .ok();
     Ok(KbStats {
         chunks,

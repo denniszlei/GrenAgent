@@ -36,7 +36,15 @@ export default function (pi: ExtensionAPI) {
   };
 
   pi.on("session_start", async (_event, ctx) => {
-    ensureStore(ctx.cwd);
+    // 后台预热 store，不阻塞 session_start（避免给冷启动/切换叠加同步 DB 打开成本）。
+    // before_agent_start / 各工具仍会 ensureStore，预热未跑完也不影响正确性。
+    setTimeout(() => {
+      try {
+        ensureStore(ctx.cwd);
+      } catch {
+        /* 预热失败无害，首次使用时会重试 */
+      }
+    }, 0);
   });
 
   // Auto-RAG: retrieve relevant snippets for the user's prompt and inject them
@@ -171,9 +179,11 @@ export default function (pi: ExtensionAPI) {
       }
 
       if (sub === "add") {
-        const p = parts.slice(1).join(" ");
+        // 取 "add" 之后的整段原文作为路径，保留内部空格（Windows 路径如
+        // "D:/Project Files/x.md" 不会被按空格切坏）。
+        const p = args.trim().slice(sub.length).trim();
         if (!p) {
-          ctx.ui.notify("Usage: /kb add <path>", "warn");
+          ctx.ui.notify("Usage: /kb add <path>", "warning");
           return;
         }
         const abs = isAbsolute(p) ? p : resolve(ctx.cwd, p);
@@ -183,7 +193,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      ctx.ui.notify("Usage: /kb stats | /kb add <path> | /kb clear", "warn");
+      ctx.ui.notify("Usage: /kb stats | /kb add <path> | /kb clear", "warning");
     },
   });
 }

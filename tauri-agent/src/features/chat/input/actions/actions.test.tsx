@@ -34,7 +34,13 @@ vi.mock('@lobehub/ui', () => ({
 
 const { piMock, resetMock, setValueMock } = vi.hoisted(() => ({
   piMock: {
-    getState: vi.fn(() => Promise.resolve({ thinkingLevel: 'off' })),
+    // 推理模型才会有 off 之外的档位（如 high）可选。
+    getState: vi.fn(() =>
+      Promise.resolve({
+        thinkingLevel: 'off',
+        model: { id: 'm', provider: 'anthropic', api: 'anthropic-messages', reasoning: true },
+      }),
+    ),
     setThinkingLevel: vi.fn(() => Promise.resolve()),
     compact: vi.fn(() => Promise.resolve()),
     newSession: vi.fn(() => Promise.resolve()),
@@ -59,12 +65,19 @@ import NewSessionAction from './NewSessionAction';
 import { ChatInputProvider, type ChatInputContextValue } from '../ChatInputContext';
 
 const ctx: ChatInputContextValue = {
-  value: '',
+  editor: {} as ChatInputContextValue['editor'],
+  empty: true,
+  setEmpty: vi.fn(),
   setValue: setValueMock,
   attachments: [],
   addAttachments: vi.fn(),
   removeAttachment: vi.fn(),
+  pastedTexts: [],
+  addPastedText: vi.fn(),
+  removePastedText: vi.fn(),
   isStreaming: false,
+  steering: [],
+  followUp: [],
   send: vi.fn(),
   stop: vi.fn(),
 };
@@ -83,7 +96,8 @@ describe('chat input actions', () => {
     await waitFor(() => {
       expect(piMock.getState).toHaveBeenCalled();
     });
-    fireEvent.click(screen.getByText('high'));
+    // 推理模型加载完成后才渲染档位项（非推理模型整个选择器隐藏）。
+    fireEvent.click(await screen.findByText('high'));
     expect(piMock.setThinkingLevel).toHaveBeenCalledWith('/ws', 'high');
   });
 

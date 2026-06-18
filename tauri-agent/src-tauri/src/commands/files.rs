@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use crate::commands::git::FileStatus;
 use crate::commands::sessions::resolve_workspace_dir;
@@ -160,7 +162,9 @@ pub struct BinaryFile {
     pub size: u64,
 }
 
-const MAX_BINARY_BYTES: u64 = 4 * 1024 * 1024;
+// 内联展示音频/图片用：放宽到 64MB。TTS（尤其 MiMo 强制无损 wav，约 2-3MB/分钟）
+// 一段朗读音频常超旧的 4MB 上限，导致 read_file_binary 失败、卡片显示「音频加载失败」。
+const MAX_BINARY_BYTES: u64 = 64 * 1024 * 1024;
 
 fn mime_from_path(path: &Path) -> &'static str {
     match path
@@ -177,6 +181,12 @@ fn mime_from_path(path: &Path) -> &'static str {
         "ico" => "image/x-icon",
         "bmp" => "image/bmp",
         "svg" => "image/svg+xml",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "ogg" | "opus" => "audio/ogg",
+        "flac" => "audio/flac",
+        "m4a" | "aac" => "audio/mp4",
+        "webm" => "audio/webm",
         _ => "application/octet-stream",
     }
 }
@@ -211,8 +221,13 @@ pub async fn write_file(workspace: String, path: String, content: String) -> Res
     let safe_path = security::validate_path_in_workspace(&workspace_root, &path)
         .map_err(security::sanitize_error)?;
 
-    // Atomic write: tmp + rename
-    let tmp_path = safe_path.with_extension("tmp");
+    // Atomic write: tmp + rename。tmp 名带 pid + 纳秒，避免同 stem 不同扩展名的文件
+    // 并发写时撞同一个 .tmp（例如同目录同时写 a.md 与 a.json）。
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp_path = safe_path.with_extension(format!("{}.{}.tmp", std::process::id(), nonce));
     fs::write(&tmp_path, &content).map_err(security::sanitize_error)?;
     fs::rename(&tmp_path, &safe_path).map_err(security::sanitize_error)?;
 
@@ -234,7 +249,7 @@ pub async fn read_file_binary(workspace: String, path: String) -> Result<BinaryF
 
     let meta = fs::metadata(&safe_path).map_err(security::sanitize_error)?;
     if meta.len() > MAX_BINARY_BYTES {
-        return Err("File too large (max 4MB)".to_string());
+        return Err("File too large (max 64MB)".to_string());
     }
 
     let bytes = fs::read(&safe_path).map_err(security::sanitize_error)?;
@@ -243,4 +258,112 @@ pub async fn read_file_binary(workspace: String, path: String) -> Result<BinaryF
         data: STANDARD.encode(bytes),
         size: meta.len(),
     })
+}
+
+/// 拖放白名单：仅记录用户「主动拖入」的文件绝对路径，`read_dropped_file` 只允许读取其中的文件。
+/// 会话级内存状态（不持久化）。用户拖放即视为对该文件的一次性读取授权，借此安全支持工作区外文件
+/// 的内容引用——既不放开任意路径读取，也不暴露绝对路径给模型（前端用文件名标注）。
+#[derive(Default)]
+pub struct DroppedAllowlist(pub Mutex<HashSet<PathBuf>>);
+
+// 白名单容量上限：超过则清空再记本次拖放，防长期运行无界增长。
+const MAX_DROPPED_ENTRIES: usize = 500;
+
+#[tauri::command]
+pub fn register_dropped_files(
+    paths: Vec<String>,
+    allow: tauri::State<'_, DroppedAllowlist>,
+) -> Result<(), String> {
+    let mut set = allow
+        .0
+        .lock()
+        .map_err(|_| "allowlist lock poisoned".to_string())?;
+    if set.len() > MAX_DROPPED_ENTRIES {
+        set.clear();
+    }
+    for p in paths {
+        if let Ok(canon) = fs::canonicalize(&p) {
+            set.insert(canon);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn read_dropped_file(
+    path: String,
+    allow: tauri::State<'_, DroppedAllowlist>,
+) -> Result<BinaryFile, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+    // 用 canonicalize 后的绝对路径比对白名单，避免 ./ 、符号链接等绕过校验。
+    let canon = fs::canonicalize(&path).map_err(|_| "File does not exist".to_string())?;
+    {
+        let set = allow
+            .0
+            .lock()
+            .map_err(|_| "allowlist lock poisoned".to_string())?;
+        if !set.contains(&canon) {
+            return Err("File not in dropped allowlist".to_string());
+        }
+    }
+
+    let meta = fs::metadata(&canon).map_err(|e| e.to_string())?;
+    if meta.len() > MAX_BINARY_BYTES {
+        return Err("File too large (max 64MB)".to_string());
+    }
+
+    let bytes = fs::read(&canon).map_err(|e| e.to_string())?;
+    Ok(BinaryFile {
+        mime_type: mime_from_path(&canon).to_string(),
+        data: STANDARD.encode(bytes),
+        size: meta.len(),
+    })
+}
+
+/// 把拖放白名单内的文件复制进工作区 `.pi/dropped/`，返回相对工作区根的路径（正斜杠）。
+/// 用于二进制/非文本文件（表格、PDF、Word 等）：复制进工作区后，agent 才能用 read/python
+/// 等工具读取解析——直接发工作区外的绝对路径，pi 的工具大多沙箱在工作区、读不到。
+#[tauri::command]
+pub fn import_dropped_file(
+    workspace: String,
+    path: String,
+    allow: tauri::State<'_, DroppedAllowlist>,
+) -> Result<String, String> {
+    let canon = fs::canonicalize(&path).map_err(|_| "File does not exist".to_string())?;
+    {
+        let set = allow
+            .0
+            .lock()
+            .map_err(|_| "allowlist lock poisoned".to_string())?;
+        if !set.contains(&canon) {
+            return Err("File not in dropped allowlist".to_string());
+        }
+    }
+
+    let meta = fs::metadata(&canon).map_err(|e| e.to_string())?;
+    if meta.len() > MAX_BINARY_BYTES {
+        return Err("File too large (max 64MB)".to_string());
+    }
+
+    let workspace_root = resolve_workspace_dir(&workspace)?;
+
+    // file_name() 已去除路径分隔，避免 `../` 之类逃逸出 .pi/dropped。
+    let name = canon
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| "invalid file name".to_string())?;
+
+    // 用源绝对路径的短 hash 做子目录：不同来源的同名文件互不覆盖；
+    // 同一文件重复拖入命中同一子目录（覆盖即更新）。
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    canon.hash(&mut hasher);
+    let sub = format!("{:x}", hasher.finish());
+
+    let dest_dir = workspace_root.join(".pi").join("dropped").join(&sub);
+    fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let dest = dest_dir.join(name);
+    fs::copy(&canon, &dest).map_err(|e| e.to_string())?;
+
+    Ok(format!(".pi/dropped/{sub}/{name}"))
 }

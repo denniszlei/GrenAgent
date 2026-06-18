@@ -1,15 +1,36 @@
 import { Button, Flexbox } from '@lobehub/ui';
-import { Switch } from 'antd';
+import { App, Dropdown, Popconfirm, Switch } from 'antd';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { Boxes, Brain, Plus, RotateCw, ScrollText, Sparkles } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import {
+  Boxes,
+  Brain,
+  FileArchive,
+  FileText,
+  FolderInput,
+  FolderOpen,
+  Import,
+  Plus,
+  RotateCw,
+  ScrollText,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { probeMcpServer, readMcpPolicy, readMcpToolsCache, writeMcpPolicy } from '../../lib/mcpPolicyIo';
-import { pi } from '../../lib/pi';
-import { useAgentStoreContext } from '../../stores/AgentStoreContext';
-import type { PiCommand } from '../chat/input/commandTypes';
-import { parseCommands } from '../chat/input/commandUtils';
+import {
+  createSkill,
+  deleteSkill,
+  importSkillFromDir,
+  importSkillFromFile,
+  installSkillFromZip,
+  listSkills,
+  openSkillsDir,
+  type SkillInfo,
+} from '../../lib/skillsIo';
 import { useSettingsForm } from '../settings/useSettingsForm';
 import { AddMcpModal } from './AddMcpModal';
+import { AddSkillModal } from './AddSkillModal';
 import { AuditModal } from './AuditModal';
 import { CodeIntelTab } from './CodeIntelTab';
 import { McpServerCard } from './McpServerCard';
@@ -258,11 +279,31 @@ const styles = createStaticStyles(({ css }) => ({
     color: ${cssVar.colorTextTertiary};
     font-size: 12px;
   `,
+  iconBtn: css`
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 auto;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: ${cssVar.colorTextTertiary};
+    cursor: pointer;
+    transition:
+      background 0.16s ease,
+      color 0.16s ease;
+
+    &:hover {
+      background: ${cssVar.colorErrorBg};
+      color: ${cssVar.colorError};
+    }
+  `,
 }));
 
 export function ExtensionsPanel() {
   const { values, setValue, persist, save, saving, loading, error } = useSettingsForm();
-  const { workspace } = useAgentStoreContext();
   const cols: Collections = {
     enabled: values.MCP_SERVERS ?? '',
     disabled: values.MCP_SERVERS_DISABLED ?? '',
@@ -270,8 +311,10 @@ export function ExtensionsPanel() {
   const entries = listEntries(cols).sort((a, b) => Number(b.enabled) - Number(a.enabled));
   const existingNames = entries.map((e) => e.name);
 
+  const { message } = App.useApp();
   const [tab, setTab] = useState<ExtTab>('mcp');
-  const [skills, setSkills] = useState<PiCommand[]>([]);
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [skillModalOpen, setSkillModalOpen] = useState(false);
   const [needsRestart, setNeedsRestart] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<McpEntry | undefined>(undefined);
@@ -352,19 +395,17 @@ export function ExtensionsPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
 
+  const reloadSkills = useCallback(async () => {
+    try {
+      setSkills(await listSkills());
+    } catch {
+      // ignore: empty list renders the empty state
+    }
+  }, []);
+
   useEffect(() => {
-    if (!workspace) return;
-    let cancelled = false;
-    void pi
-      .getCommands(workspace)
-      .then((raw) => {
-        if (!cancelled) setSkills(parseCommands(raw).filter((c) => c.apiSource === 'skill'));
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [workspace]);
+    void reloadSkills();
+  }, [reloadSkills]);
 
   // 改动后静默自动存盘（防抖）：值已落盘，但 MCP/技能靠 env 在 sidecar 启动时注入，
   // 仍需「重启生效」按钮重启才真正生效。
@@ -404,13 +445,72 @@ export function ExtensionsPanel() {
     if (window.confirm(`确认删除 MCP "${name}"？`)) writeCols(removeServer(cols, name));
   };
 
-  const disabled = parseDisabled(values.SKILLS_DISABLED ?? '');
+  // 归一到无前缀名：兼容旧版写进去的 `skill:xxx`，与磁盘上的裸名匹配。
+  const bareSkillName = (name: string) => (name.startsWith('skill:') ? name.slice(6) : name);
+  const disabled = new Set(Array.from(parseDisabled(values.SKILLS_DISABLED ?? '')).map(bareSkillName));
+  const writeDisabled = (next: Set<string>) => setValue('SKILLS_DISABLED', Array.from(next).join(','));
   const toggleSkill = (name: string) => {
     const next = new Set(disabled);
     if (next.has(name)) next.delete(name);
     else next.add(name);
-    setValue('SKILLS_DISABLED', Array.from(next).join(','));
+    writeDisabled(next);
     markChanged();
+  };
+  const handleCreateSkill = async (name: string, description: string, body: string) => {
+    await createSkill(name, description, body);
+    await reloadSkills();
+    markChanged();
+  };
+  const handleDeleteSkill = async (sk: SkillInfo) => {
+    await deleteSkill(sk.path);
+    if (disabled.has(sk.name)) {
+      const next = new Set(disabled);
+      next.delete(sk.name);
+      writeDisabled(next);
+    }
+    await reloadSkills();
+    markChanged();
+  };
+
+  // 选路径 → 导入 → 刷新列表 + 提示。selected 为 null 表示用户取消选择。
+  const runImport = async (selected: string | string[] | null, fn: (src: string) => Promise<SkillInfo>) => {
+    if (typeof selected !== 'string') return;
+    try {
+      const sk = await fn(selected);
+      await reloadSkills();
+      markChanged();
+      message.success(`已导入技能「${sk.name}」`);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const importZip = async () =>
+    runImport(
+      await openDialog({ multiple: false, filters: [{ name: 'Zip', extensions: ['zip'] }] }),
+      installSkillFromZip,
+    );
+  const importDir = async () => runImport(await openDialog({ directory: true, multiple: false }), importSkillFromDir);
+  const importFile = async () =>
+    runImport(
+      await openDialog({ multiple: false, filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }] }),
+      importSkillFromFile,
+    );
+
+  const handleOpenSkillsDir = async () => {
+    try {
+      await openSkillsDir();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const importMenu = {
+    items: [
+      { key: 'zip', label: '从 Zip 安装', icon: <FileArchive size={14} />, onClick: () => void importZip() },
+      { key: 'dir', label: '导入技能目录', icon: <FolderInput size={14} />, onClick: () => void importDir() },
+      { key: 'file', label: '导入单文件 (SKILL.md)', icon: <FileText size={14} />, onClick: () => void importFile() },
+    ],
   };
 
   const restart = async () => {
@@ -567,23 +667,49 @@ export function ExtensionsPanel() {
             </>
           ) : (
             <>
-              <div className={styles.hero}>
-                <span className={styles.heroIcon}>
-                  <Sparkles size={18} />
-                </span>
-                <span className={styles.heroTitle}>
-                  Skills
-                  {skills.length > 0 ? <span className={styles.count}>{skills.length}</span> : null}
-                </span>
+              <div className={styles.heroBar}>
+                <div className={styles.hero}>
+                  <span className={styles.heroIcon}>
+                    <Sparkles size={18} />
+                  </span>
+                  <span className={styles.heroTitle}>
+                    Skills
+                    {skills.length > 0 ? <span className={styles.count}>{skills.length}</span> : null}
+                  </span>
+                </div>
+                <Flexbox horizontal align="center" gap={8}>
+                  <Button
+                    size="small"
+                    data-testid="skill-open-dir"
+                    icon={<FolderOpen size={14} />}
+                    onClick={() => void handleOpenSkillsDir()}
+                  >
+                    打开目录
+                  </Button>
+                  <Dropdown menu={importMenu} trigger={['click']}>
+                    <Button size="small" data-testid="skill-import" icon={<Import size={14} />}>
+                      导入
+                    </Button>
+                  </Dropdown>
+                  <Button
+                    type="primary"
+                    size="small"
+                    data-testid="skill-add"
+                    icon={<Plus size={14} />}
+                    onClick={() => setSkillModalOpen(true)}
+                  >
+                    新增技能
+                  </Button>
+                </Flexbox>
               </div>
               <div className={styles.heroDesc}>
-                关闭某个 skill 后改动自动保存、重启生效；可用 <code className={styles.code}>/skill:名称</code> 调用。
+                技能存于 <code className={styles.code}>~/.agents/skills</code>；关闭或增删后改动自动保存、重启生效；可用 <code className={styles.code}>/skill:名称</code> 调用。
               </div>
 
               {skills.length === 0 ? (
                 <div className={styles.empty} data-testid="skills-empty">
                   <Sparkles size={22} />
-                  <span>未发现 skills（workspace 无 .pi/skills 或未加载）</span>
+                  <span>未发现技能，点右上「新增技能」</span>
                 </div>
               ) : (
                 skills.map((sk) => {
@@ -603,10 +729,34 @@ export function ExtensionsPanel() {
                         onChange={() => toggleSkill(sk.name)}
                         data-testid={`skill-toggle-${sk.name}`}
                       />
+                      <Popconfirm
+                        title="永久删除技能"
+                        description={`确定删除「${sk.name}」吗？将从磁盘移除整个文件夹，不可恢复。`}
+                        okText="删除"
+                        cancelText="取消"
+                        okButtonProps={{ danger: true, 'data-testid': `skill-delete-confirm-${sk.name}` }}
+                        onConfirm={() => void handleDeleteSkill(sk)}
+                      >
+                        <button
+                          type="button"
+                          className={styles.iconBtn}
+                          data-testid={`skill-delete-${sk.name}`}
+                          title="永久删除"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </Popconfirm>
                     </div>
                   );
                 })
               )}
+
+              <AddSkillModal
+                open={skillModalOpen}
+                existingNames={skills.map((s) => s.name)}
+                onSubmit={handleCreateSkill}
+                onClose={() => setSkillModalOpen(false)}
+              />
             </>
           )}
         </div>

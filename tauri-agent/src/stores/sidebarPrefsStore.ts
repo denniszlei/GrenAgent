@@ -3,12 +3,14 @@ import { persist } from 'zustand/middleware';
 
 interface SidebarPrefsState {
   pinnedProjects: string[]; // 按 cwd
+  pinnedConversations: string[]; // 按 conversation cwd
   pinnedSessions: string[]; // 按 session.path
   hiddenProjects: string[]; // 按 cwd
   aliases: Record<string, string>; // cwd -> 别名
   collapsed: Record<string, boolean>; // cwd -> 是否折叠（仅存非默认值）
 
   togglePinnedProject: (cwd: string) => void;
+  togglePinnedConversation: (cwd: string) => void;
   togglePinnedSession: (path: string) => void;
   hideProject: (cwd: string) => void;
   unhideProject: (cwd: string) => void;
@@ -24,6 +26,7 @@ export const useSidebarPrefsStore = create<SidebarPrefsState>()(
   persist(
     (set, get) => ({
       pinnedProjects: [],
+      pinnedConversations: [],
       pinnedSessions: [],
       hiddenProjects: [],
       aliases: {},
@@ -31,6 +34,8 @@ export const useSidebarPrefsStore = create<SidebarPrefsState>()(
 
       togglePinnedProject: (cwd) =>
         set((s) => ({ pinnedProjects: toggle(s.pinnedProjects, cwd) })),
+      togglePinnedConversation: (cwd) =>
+        set((s) => ({ pinnedConversations: toggle(s.pinnedConversations, cwd) })),
       togglePinnedSession: (path) =>
         set((s) => ({ pinnedSessions: toggle(s.pinnedSessions, path) })),
       hideProject: (cwd) =>

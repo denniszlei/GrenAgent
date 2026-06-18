@@ -8,6 +8,7 @@ import {
   MAIN_COLUMN_MIN_WIDTH,
   RIGHT_PANEL_MAX_WIDTH,
   RIGHT_PANEL_MIN_WIDTH,
+  SIDEBAR_AUTO_COLLAPSE_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
 } from './layoutStore';
@@ -67,6 +68,61 @@ describe('resolvePanelVisibility', () => {
         rightPanelWidth: 320,
       }),
     ).toEqual({ sidebarVisible: false, rightPanelVisible: false });
+  });
+
+  it('窗体达到最小宽度时自动收起会话列表（右面板关闭，空间仍放得下也收）', () => {
+    // 240 + 320 = 560 <= 664 本可放下，但 664 <= 阈值 → 仍收起，让对话区拿到整行宽度
+    expect(
+      resolvePanelVisibility({
+        availableWidth: SIDEBAR_AUTO_COLLAPSE_WIDTH,
+        sidebarOpen: true,
+        rightPanelOpen: false,
+        sidebarWidth: 240,
+        rightPanelWidth: 320,
+      }),
+    ).toEqual({ sidebarVisible: false, rightPanelVisible: false });
+  });
+
+  it('窗体宽于最小宽度阈值时会话列表正常显示', () => {
+    expect(
+      resolvePanelVisibility({
+        availableWidth: SIDEBAR_AUTO_COLLAPSE_WIDTH + 1,
+        sidebarOpen: true,
+        rightPanelOpen: false,
+        sidebarWidth: 240,
+        rightPanelWidth: 320,
+      }),
+    ).toEqual({ sidebarVisible: true, rightPanelVisible: false });
+  });
+
+  it('达到最小宽度但正在拖宽侧栏时不自动收起（谁被操作谁优先）', () => {
+    expect(
+      resolvePanelVisibility({
+        availableWidth: SIDEBAR_AUTO_COLLAPSE_WIDTH,
+        sidebarOpen: true,
+        rightPanelOpen: false,
+        sidebarWidth: 240,
+        rightPanelWidth: 320,
+        dragging: 'sidebar',
+      }),
+    ).toEqual({ sidebarVisible: true, rightPanelVisible: false });
+  });
+
+  it('窗体从最小宽度变大后会话列表自动恢复（纯派生，不改意图）', () => {
+    const args = {
+      sidebarOpen: true,
+      rightPanelOpen: false,
+      sidebarWidth: 240,
+      rightPanelWidth: 320,
+    };
+    expect(resolvePanelVisibility({ ...args, availableWidth: SIDEBAR_AUTO_COLLAPSE_WIDTH })).toEqual({
+      sidebarVisible: false,
+      rightPanelVisible: false,
+    });
+    expect(resolvePanelVisibility({ ...args, availableWidth: 1000 })).toEqual({
+      sidebarVisible: true,
+      rightPanelVisible: false,
+    });
   });
 });
 

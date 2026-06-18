@@ -1,0 +1,20 @@
+{
+  "name": "pi-debug-tools",
+  "version": "0.1.0",
+  "description": "Runtime debugging for the Pi coding agent (Cursor Debug Mode style): local log collector + code instrumentation + read-back for evidence-based root-cause fixes.",
+  "private": true,
+  "type": "module",
+  "keywords": ["pi-package", "pi-extension", "debug", "instrumentation"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "vitest": "^4.1.8"
+  }
+}

@@ -7,13 +7,17 @@ pub mod git;
 pub mod knowledge;
 pub mod mcp_policy;
 pub mod memory;
+pub mod providers;
 pub mod review;
 pub mod sessions;
 pub mod shell;
+pub mod skills;
 pub mod subagent;
 pub mod terminal;
+pub mod usage;
 pub mod workspaces;
 
 pub use agent::*;
 pub use sessions::*;
 pub use subagent::*;
+pub use usage::*;

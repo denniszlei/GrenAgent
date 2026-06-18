@@ -5,7 +5,6 @@ export type ModuleId =
   | 'knowledge'
   | 'memory'
   | 'review'
-  | 'create'
   | 'checkpoints'
   | 'connections'
   | 'extensions'

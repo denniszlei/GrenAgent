@@ -157,7 +157,10 @@ mod tests {
     fn list_reads_rows_desc() {
         let dir = tmp_dir();
         let db = dir.join("registry.db");
-        make_registry(&db, &[("sa-1", "task a", "running"), ("sa-2", "task b", "done")]);
+        make_registry(
+            &db,
+            &[("sa-1", "task a", "running"), ("sa-2", "task b", "done")],
+        );
         let list = read_subagent_list(&db, 50).unwrap();
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].id, "sa-1");

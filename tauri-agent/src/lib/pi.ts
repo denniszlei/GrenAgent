@@ -136,6 +136,18 @@ export interface RefreshResult {
   failed: { workspace: string; error: string }[];
 }
 
+export interface DiagnoseResult {
+  ok: boolean;
+  error?: string | null;
+  content: string;
+  ttftMs: number;
+  totalMs: number;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
+  tokensPerSec?: number | null;
+}
+
 export interface SubAgentItem {
   id: string;
   task: string;
@@ -150,10 +162,36 @@ export interface SubAgentItem {
   updatedAt: number;
 }
 
+export interface GitFileStatus {
+  path: string;
+  status: 'modified' | 'staged' | 'untracked' | string;
+}
+export interface BranchInfo {
+  name: string;
+  isCurrent: boolean;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+}
+export interface GitBranches {
+  current: string;
+  branches: BranchInfo[];
+}
+export interface GitLogEntry {
+  hash: string;
+  shortHash: string;
+  parents: string[];
+  author: string;
+  subject: string;
+  timestamp: number;
+  refs: string[];
+}
+
 export const pi = {
   openWorkspace: (workspace: string) =>
     invoke<OpenWorkspaceResult>('open_workspace', { workspace }),
   closeWorkspace: (workspace: string) => invoke<void>('close_workspace', { workspace }),
+  warmWorkspace: (workspace: string) => invoke<void>('warm_workspace', { workspace }),
   prompt: (
     workspace: string,
     message: string,
@@ -173,6 +211,7 @@ export const pi = {
   getAvailableModels: (workspace: string) => invoke<unknown>('agent_get_available_models', { workspace }),
   setThinkingLevel: (workspace: string, level: string) =>
     invoke<unknown>('agent_set_thinking_level', { workspace, level }),
+  setMode: (workspace: string, mode: string) => invoke<unknown>('agent_set_mode', { workspace, mode }),
   compact: (workspace: string) => invoke<unknown>('agent_compact', { workspace }),
   getState: (workspace: string) => invoke<unknown>('agent_get_state', { workspace }),
   getMessages: (workspace: string) => invoke<{ messages: AgentMessage[] }>('agent_get_messages', { workspace }),
@@ -220,13 +259,29 @@ export const pi = {
   refreshModelRegistry: () => invoke<RefreshResult>('refresh_model_registry'),
   fetchProviderModels: (baseUrl: string, apiKey: string, api: string) =>
     invoke<string[]>('fetch_provider_models', { baseUrl, apiKey, api }),
+  /** Mermaid 渲染失败时的非流式一次性修复：用当前会话模型生成修正后的 mermaid 代码（不进对话历史）。 */
+  fixMermaid: (workspace: string, code: string, error: string) =>
+    invoke<string>('fix_mermaid_diagram', { workspace, code, error }),
+  diagnoseProviderModel: (providerId: string, modelId: string, prompt: string) =>
+    invoke<DiagnoseResult>('diagnose_provider_model', { providerId, modelId, prompt }),
   subagentList: (workspace: string) => invoke<SubAgentItem[]>('subagent_list', { workspace }),
   subagentCancel: (workspace: string, agentId: string) =>
     invoke<void>('subagent_cancel', { workspace, agentId }),
   runCommand: (workspace: string, command: string) =>
     invoke<unknown>('agent_prompt', { workspace, message: command }),
+  readFile: (workspace: string, path: string) => invoke<string>('read_file', { workspace, path }),
   getGitDiff: (workspace: string, file: string) =>
     invoke<string>('get_git_diff', { workspacePath: workspace, filePath: file }),
+  getGitStatus: (workspace: string) =>
+    invoke<GitFileStatus[]>('get_git_status', { workspacePath: workspace }),
+  getGitBranches: (workspace: string) =>
+    invoke<GitBranches>('get_git_branches', { workspacePath: workspace }),
+  gitCheckout: (workspace: string, branch: string) =>
+    invoke<void>('git_checkout', { workspacePath: workspace, branch }),
+  gitCreateBranch: (workspace: string, name: string, checkout = true) =>
+    invoke<void>('git_create_branch', { workspacePath: workspace, name, checkout }),
+  getGitLogGraph: (workspace: string, limit?: number) =>
+    invoke<GitLogEntry[]>('get_git_log_graph', { workspacePath: workspace, limit: limit ?? null }),
 };
 
 /**

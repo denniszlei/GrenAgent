@@ -32,13 +32,6 @@ const styles = createStaticStyles(({ css }) => ({
     text-overflow: ellipsis;
     white-space: nowrap;
   `,
-  badge: css`
-    padding: 0 5px;
-    border: 1px solid ${cssVar.colorBorderSecondary};
-    border-radius: 4px;
-    color: ${cssVar.colorTextTertiary};
-    font-size: 10px;
-  `,
   acts: css`
     display: none;
 
@@ -51,7 +44,6 @@ const styles = createStaticStyles(({ css }) => ({
 export interface ProjectItemProps {
   name: string;
   expanded: boolean;
-  isCurrent: boolean;
   pinned: boolean;
   onToggle: () => void;
   onNew: () => void;
@@ -80,7 +72,6 @@ export function ProjectItem(p: ProjectItemProps) {
         </span>
         <Icon icon={p.expanded ? FolderOpen : FolderClosed} size="small" />
         <span className={styles.name}>{p.name}</span>
-        {p.isCurrent && <span className={styles.badge}>当前</span>}
         <span className={styles.acts}>
           <RowActions menuItems={items} onNew={p.onNew} />
         </span>

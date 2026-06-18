@@ -1,12 +1,13 @@
 import { Accordion, AccordionItem, Block, Flexbox, Icon, ScrollArea } from '@lobehub/ui';
-import { cssVar } from 'antd-style';
-import { ChevronRight, Search } from 'lucide-react';
+import { cssVar, cx } from 'antd-style';
+import { Check, ChevronRight, Copy, Search } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { LazyHighlighter } from './LazyHighlighter';
-import { useCardStyles } from './cardStyles';
+import { cardStyles } from './cardStyles';
 import { StatusIndicator } from './StatusIndicator';
 import { renderExtensionCard } from './extensionCards';
+import { CodeSearchCard, GlobCard, GrepCard } from './SearchCards';
 import {
   argSummary,
   extractText,
@@ -17,6 +18,7 @@ import {
   stringifyJson,
   toolMeta,
 } from './toolUtils';
+import { parseCodeSearchHits, parseGlobOutput, parseGrepOutput } from '../../lib/searchResults';
 
 interface ToolExecutionProps {
   toolName: string;
@@ -25,6 +27,45 @@ interface ToolExecutionProps {
   args: unknown;
   result: unknown;
   status: 'running' | 'done' | 'error';
+}
+
+/** Cursor 风格的搜索标题：状态点 + 放大镜 + 「<label> <查询词> · N <unit>」。 */
+function SearchInspectorTitle({
+  status,
+  label,
+  query,
+  count,
+  unit,
+  fallback,
+}: {
+  status: ToolExecutionProps['status'];
+  label: string;
+  query: string;
+  count?: number;
+  unit: string;
+  fallback: string;
+}) {
+  const styles = cardStyles;
+  return (
+    <Flexbox horizontal align="center" gap={6} style={{ minWidth: 0, flex: 1 }}>
+      <StatusIndicator status={status} />
+      <Icon icon={Search} size={14} />
+      <div className={styles.inspectorTitle}>
+        {label}{' '}
+        {query ? (
+          <span className={styles.queryHighlight}>{query}</span>
+        ) : (
+          <span className={styles.toolName}>{fallback}</span>
+        )}
+        {count != null ? (
+          <span className={styles.searchCount}>
+            {' · '}
+            {count} {unit}
+          </span>
+        ) : null}
+      </div>
+    </Flexbox>
+  );
 }
 
 function ToolInspector({
@@ -38,7 +79,7 @@ function ToolInspector({
   result: unknown;
   status: ToolExecutionProps['status'];
 }) {
-  const { styles } = useCardStyles();
+  const styles = cardStyles;
 
   // web_search / search：读作「搜索：<高亮查询词>（N）」。
   if (toolName.toLowerCase() === 'web_search' || toolName.toLowerCase() === 'search') {
@@ -98,6 +139,44 @@ function ToolInspector({
     );
   }
 
+  const lname = toolName.toLowerCase();
+  if (lname === 'grep' || lname === 'ripgrep') {
+    return (
+      <SearchInspectorTitle
+        status={status}
+        label="检索"
+        query={getArgString(args, 'pattern')}
+        count={status === 'running' ? undefined : parseGrepOutput(extractText(result)).total}
+        unit="处"
+        fallback={lname}
+      />
+    );
+  }
+  if (lname === 'glob') {
+    return (
+      <SearchInspectorTitle
+        status={status}
+        label="查找文件"
+        query={getArgString(args, 'pattern')}
+        count={status === 'running' ? undefined : parseGlobOutput(extractText(result)).files.length}
+        unit="个"
+        fallback={lname}
+      />
+    );
+  }
+  if (lname === 'code_search') {
+    return (
+      <SearchInspectorTitle
+        status={status}
+        label="代码检索"
+        query={getArgString(args, 'query')}
+        count={status === 'running' ? undefined : parseCodeSearchHits(result).length}
+        unit="处"
+        fallback={lname}
+      />
+    );
+  }
+
   const { icon } = toolMeta(toolName);
   const summary = argSummary(args);
 
@@ -121,10 +200,65 @@ function ToolInspector({
 }
 
 function TerminalOutput({ text, isError }: { text: string; isError?: boolean }) {
-  const { styles, cx } = useCardStyles();
+  const styles = cardStyles;
   if (!text) return null;
   return (
     <div className={cx(styles.terminalOutput, isError && styles.terminalOutputError)}>{text}</div>
+  );
+}
+
+/**
+ * 终端卡：`$` 提示符命令 + 复制按钮 + 输出，统一收进一个带边框的容器。
+ * 走项目自身的 cssVar 配色（不引入外部风格元素），与其它工具卡片观感一致。
+ */
+function TerminalCard({
+  command,
+  output,
+  isError,
+  running,
+}: {
+  command: string;
+  output: string;
+  isError?: boolean;
+  running?: boolean;
+}) {
+  const styles = cardStyles;
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    if (!command) return;
+    void navigator.clipboard?.writeText(command);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  };
+  return (
+    <div className={styles.terminalCard}>
+      {command ? (
+        <div className={styles.terminalHead}>
+          <span className={styles.terminalPrompt}>$</span>
+          <span className={styles.terminalCommandText}>{command}</span>
+          <button type="button" className={styles.terminalCopy} title="复制命令" onClick={copy}>
+            <Icon icon={copied ? Check : Copy} size={13} />
+          </button>
+        </div>
+      ) : null}
+      {output ? (
+        <div
+          className={cx(
+            styles.terminalBody,
+            command && styles.terminalBodyDivided,
+            isError && styles.terminalOutputError,
+          )}
+        >
+          {output}
+        </div>
+      ) : running ? (
+        <div
+          className={cx(styles.terminalBody, command && styles.terminalBodyDivided, styles.terminalRunning)}
+        >
+          运行中…
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -139,7 +273,7 @@ function ToolDetail({
   result: unknown;
   status: ToolExecutionProps['status'];
 }) {
-  const { styles } = useCardStyles();
+  const styles = cardStyles;
   const extensionCard = renderExtensionCard({ toolName, args, result, status });
   if (extensionCard) {
     // 统一给扩展卡片留出与上方 inspector 标题行的间距（对齐 lobe，避免贴在一起）。
@@ -157,14 +291,12 @@ function ToolDetail({
   if (name === 'bash' || name === 'shell' || name === 'run_terminal_cmd') {
     const command = getArgString(args, 'command');
     return (
-      <Flexbox gap={8}>
-        {command && (
-          <LazyHighlighter language="bash" copyable variant="borderless" style={{ maxHeight: 200 }}>
-            {command}
-          </LazyHighlighter>
-        )}
-        <TerminalOutput text={text} isError={isError} />
-      </Flexbox>
+      <TerminalCard
+        command={command}
+        output={text}
+        isError={isError}
+        running={status === 'running'}
+      />
     );
   }
 
@@ -249,7 +381,22 @@ function ToolDetail({
     );
   }
 
-  if (name === 'glob' || name === 'grep' || name === 'ripgrep' || name === 'ls' || name === 'list_dir') {
+  if (name === 'grep' || name === 'ripgrep') {
+    if (status === 'running' && !text) return <TerminalOutput text="搜索中…" />;
+    return <GrepCard result={result} />;
+  }
+
+  if (name === 'glob') {
+    if (status === 'running' && !text) return <TerminalOutput text="搜索中…" />;
+    return <GlobCard result={result} />;
+  }
+
+  if (name === 'code_search') {
+    if (status === 'running' && !text) return <TerminalOutput text="搜索中…" />;
+    return <CodeSearchCard result={result} />;
+  }
+
+  if (name === 'ls' || name === 'list_dir') {
     return <TerminalOutput text={text || stringifyJson(result)} isError={isError} />;
   }
 
@@ -267,12 +414,27 @@ function ToolDetail({
 }
 
 function ToolExecutionInner({ toolName, args, result, status }: ToolExecutionProps) {
-  const { styles } = useCardStyles();
+  const styles = cardStyles;
   const [expanded, setExpanded] = useState(status === 'running');
   const hasDetail = useMemo(() => {
     if (status === 'running') return true;
     return Boolean(extractText(result) || getDiff(result) || stringifyJson(result));
   }, [result, status]);
+
+  // todo / generate_image：作为独立卡片常驻展示，不包进可折叠的 Accordion——todo 要常看；生图卡自成
+  // 一体（自带标题/提示词/操作/预览），再套通用「工具行 + 折叠 + 引导线 + 虚线分隔」反而冗余难看。
+  // 在 hooks 之后再 early return，保证 hooks 调用顺序稳定。
+  const bareName = toolName.toLowerCase();
+  if (bareName === 'todo' || bareName === 'generate_image') {
+    const card = renderExtensionCard({ toolName, args, result, status });
+    if (card) {
+      return (
+        <div className={styles.toolRow}>
+          <ErrorBoundary>{card}</ErrorBoundary>
+        </div>
+      );
+    }
+  }
 
   const inspector = (
     <ToolInspector toolName={toolName} args={args} result={result} status={status} />
@@ -288,7 +450,7 @@ function ToolExecutionInner({ toolName, args, result, status }: ToolExecutionPro
             hideIndicator
             itemKey="tool"
             paddingBlock={4}
-            paddingInline={4}
+            paddingInline={0}
             title={inspector}
           />
         </Accordion>
@@ -305,13 +467,15 @@ function ToolExecutionInner({ toolName, args, result, status }: ToolExecutionPro
         expandedKeys={expanded ? ['tool'] : []}
         onExpandedChange={(keys) => setExpanded(keys.includes('tool'))}
       >
-        <AccordionItem itemKey="tool" paddingBlock={4} paddingInline={4} title={inspector}>
-          <ScrollArea disableContentFit scrollFade viewportProps={{ className: styles.detailScroll }}>
-            <Flexbox gap={8} paddingBlock={8}>
-              <ToolDetail toolName={toolName} args={args} result={result} status={status} />
-              <div className={styles.divDash} />
-            </Flexbox>
-          </ScrollArea>
+        <AccordionItem itemKey="tool" paddingBlock={4} paddingInline={0} title={inspector}>
+          <div className={styles.detailGuide}>
+            <ScrollArea disableContentFit scrollFade viewportProps={{ className: styles.detailScroll }}>
+              <Flexbox gap={8} paddingBlock={8} style={{ minWidth: 0 }}>
+                <ToolDetail toolName={toolName} args={args} result={result} status={status} />
+                <div className={styles.divDash} />
+              </Flexbox>
+            </ScrollArea>
+          </div>
         </AccordionItem>
       </Accordion>
     </div>

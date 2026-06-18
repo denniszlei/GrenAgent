@@ -1,0 +1,23 @@
+{
+  "name": "pi-lsp",
+  "version": "0.1.0",
+  "description": "LSP integration for the Pi coding agent: spawn language servers and expose definition/references/hover/diagnostics/symbols over a self-contained JSON-RPC client.",
+  "private": true,
+  "type": "module",
+  "keywords": ["pi-package", "pi-extension", "lsp", "language-server"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*",
+    "vitest": "^4.1.8"
+  }
+}

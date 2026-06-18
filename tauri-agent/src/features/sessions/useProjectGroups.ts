@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { SessionInfo } from '../../lib/pi';
-import { mergeAllSessions } from '../../lib/mergeSessions';
+import { filterDeletedSessions, mergeAllSessions } from '../../lib/mergeSessions';
 import { isUnder, pathsEquivalent } from '../../lib/pathUtils';
 import { useSessionStore } from '../../store/session';
 import { useSidebarPrefsStore } from '../../stores/sidebarPrefsStore';
@@ -79,9 +79,10 @@ export function buildProjectGroups(sessions: SessionInfo[], params: BuildParams)
       .filter((g): g is ProjectGroup => g !== null);
   }
 
-  // 排序：当前项目 > 置顶 > 最近活跃（无 session 的新开项目靠 isCurrent 靠前）
+  // 排序：置顶 > 最近活跃 > 名称。刻意不把「当前项目」置顶——否则每次打开某个项目对话，
+  // 该项目就被顶到最前导致整列重排，体验割裂。保持稳定顺序，仅在真正产生新活动
+  //（timestamp 变化）时才自然上移。
   groups.sort((a, b) => {
-    if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     if (a.lastActivity !== b.lastActivity) return (b.lastActivity ?? '').localeCompare(a.lastActivity ?? '');
     return a.name.localeCompare(b.name);
@@ -93,6 +94,7 @@ export function buildProjectGroups(sessions: SessionInfo[], params: BuildParams)
 export function useProjectGroups(): ProjectGroup[] {
   const allSessions = useSessionStore((s) => s.allSessions);
   const optimisticSessions = useSessionStore((s) => s.optimisticSessions);
+  const deletedSessionPaths = useSessionStore((s) => s.deletedSessionPaths);
   const registeredProjects = useSessionStore((s) => s.registeredProjects);
   const current = useSessionStore((s) => s.activeWorkspace);
   const keyword = useSessionStore((s) => s.searchKeyword);
@@ -103,18 +105,22 @@ export function useProjectGroups(): ProjectGroup[] {
 
   return useMemo(
     () =>
-      buildProjectGroups(mergeAllSessions(allSessions, optimisticSessions), {
-        current,
-        pinnedProjects,
-        hiddenProjects,
-        aliases,
-        keyword,
-        worksDir,
-        registeredProjects,
-      }),
+      buildProjectGroups(
+        filterDeletedSessions(mergeAllSessions(allSessions, optimisticSessions), deletedSessionPaths),
+        {
+          current,
+          pinnedProjects,
+          hiddenProjects,
+          aliases,
+          keyword,
+          worksDir,
+          registeredProjects,
+        },
+      ),
     [
       allSessions,
       optimisticSessions,
+      deletedSessionPaths,
       registeredProjects,
       current,
       pinnedProjects,

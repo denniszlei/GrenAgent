@@ -15,6 +15,17 @@ export const TERMINAL_MAX_HEIGHT = 600;
 /** 展开面板时给中间对话区保留的最小宽度，是自动折叠 / 防溢出的核心阈值。 */
 export const MAIN_COLUMN_MIN_WIDTH = 320;
 
+/** 窗体最小宽度（对齐 tauri.conf.json 的 app.windows[].minWidth）。 */
+export const WINDOW_MIN_WIDTH = 720;
+/** 最左模块导航 rail 的固定宽度（对齐 ModuleRail），整行可用宽度 = 窗口宽 - rail。 */
+export const MODULE_RAIL_WIDTH = 56;
+/**
+ * 会话列表自动收起阈值：整行可用宽度收缩到与「窗体最小宽度」相当时，自动收起左侧会话列表，
+ * 把宽度整体让给对话区。= 窗体最小宽度 - rail 宽度，再留 8px 余量吸收高 DPI 缩放下的子像素测量误差。
+ * 窗体不能比最小宽度更窄，故「可用宽度 <= 此值」等价于「窗体达到最小宽度时」。
+ */
+export const SIDEBAR_AUTO_COLLAPSE_WIDTH = WINDOW_MIN_WIDTH - MODULE_RAIL_WIDTH + 8;
+
 const clampValue = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi));
 
 export interface PanelVisibility {
@@ -28,6 +39,7 @@ export interface PanelVisibility {
  * - 默认（窗口被挤压）：先收左侧栏 → 再收右面板 → 只剩对话区。
  * - dragging='sidebar'（正在拖宽左侧栏）：放不下时改为先挤掉右面板（"谁被操作谁优先"）。
  * - dragging='right'（正在拖宽右面板）：放不下时挤掉左侧栏。
+ * - 窗体达到最小宽度（availableWidth <= SIDEBAR_AUTO_COLLAPSE_WIDTH）：即使还放得下，也自动收起左侧会话列表（正拖拽侧栏时不收）。
  * availableWidth<=0（尚未量到）时直接返回意图，避免首帧误折叠。
  */
 export function resolvePanelVisibility(args: {
@@ -56,6 +68,11 @@ export function resolvePanelVisibility(args: {
     rightPanelVisible = false;
   }
   if (sidebarVisible && sidebarWidth + MAIN_COLUMN_MIN_WIDTH > availableWidth) {
+    sidebarVisible = false;
+  }
+  // 窗体收缩到最小宽度：即使空间还放得下，也自动收起左侧会话列表，把整行宽度让给对话区。
+  // 正拖拽侧栏时不收（沿用"谁被操作谁优先"）；窗体变宽后纯派生地自动恢复。
+  if (sidebarVisible && dragging !== 'sidebar' && availableWidth <= SIDEBAR_AUTO_COLLAPSE_WIDTH) {
     sidebarVisible = false;
   }
   return { sidebarVisible, rightPanelVisible };

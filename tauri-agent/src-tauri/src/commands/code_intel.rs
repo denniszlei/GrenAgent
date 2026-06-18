@@ -93,7 +93,10 @@ pub async fn code_intel_sync(app: tauri::AppHandle, workspace: String) -> Result
 
 /// Full rebuild (`codegraph index -f <ws>`).
 #[tauri::command]
-pub async fn code_intel_reindex(app: tauri::AppHandle, workspace: String) -> Result<String, String> {
+pub async fn code_intel_reindex(
+    app: tauri::AppHandle,
+    workspace: String,
+) -> Result<String, String> {
     run_codegraph(&app, &["index", "-f", workspace.as_str()]).await
 }
 

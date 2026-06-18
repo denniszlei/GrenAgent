@@ -71,7 +71,9 @@ pub fn cp_diff(workspace: String, id: String) -> Result<String, String> {
         return Ok(String::new());
     };
     let hash: String = conn
-        .query_row("SELECT hash FROM checkpoints WHERE id = ?1", [&id], |r| r.get(0))
+        .query_row("SELECT hash FROM checkpoints WHERE id = ?1", [&id], |r| {
+            r.get(0)
+        })
         .map_err(|e| e.to_string())?;
     let gitdir = base.join("git");
     let output = Command::new("git")
@@ -124,7 +126,14 @@ mod tests {
     #[test]
     fn list_reads_rows_desc_and_parses_files() {
         let db = tmp_meta(&[
-            ("a1", "h1", "first", "auto", "[{\"file\":\"x.ts\",\"status\":\"M\"}]", 100),
+            (
+                "a1",
+                "h1",
+                "first",
+                "auto",
+                "[{\"file\":\"x.ts\",\"status\":\"M\"}]",
+                100,
+            ),
             ("a2", "h2", "second", "manual", "[]", 200),
         ]);
         let rows = read_cp_list(&db).unwrap();

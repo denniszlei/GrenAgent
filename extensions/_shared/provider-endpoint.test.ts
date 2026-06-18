@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveCapabilityEndpoint, type RegistryLike } from "./provider-endpoint.js";
+import { buildCandidateUrls, resolveCapabilityEndpoint, type RegistryLike } from "./provider-endpoint.js";
 
 const reg = (key: string | undefined): RegistryLike =>
   ({
@@ -37,5 +37,28 @@ describe("resolveCapabilityEndpoint", () => {
   it("disabled when provider empty", async () => {
     const ep = await resolveCapabilityEndpoint(reg("k"), "", "m", "fb");
     expect(ep.enabled).toBe(false);
+  });
+});
+
+describe("buildCandidateUrls", () => {
+  it("adds a /v1 fallback when base has no version segment", () => {
+    expect(buildCandidateUrls("https://host", "embeddings")).toEqual([
+      "https://host/embeddings",
+      "https://host/v1/embeddings",
+    ]);
+  });
+
+  it("does not add /v1 when base already ends with a version segment", () => {
+    expect(buildCandidateUrls("https://host/v1", "embeddings")).toEqual(["https://host/v1/embeddings"]);
+    expect(buildCandidateUrls("https://host/v1beta", "audio/speech")).toEqual([
+      "https://host/v1beta/audio/speech",
+    ]);
+  });
+
+  it("normalizes trailing/leading slashes", () => {
+    expect(buildCandidateUrls("https://host/", "/embeddings")).toEqual([
+      "https://host/embeddings",
+      "https://host/v1/embeddings",
+    ]);
   });
 });

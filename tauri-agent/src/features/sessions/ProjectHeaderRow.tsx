@@ -38,7 +38,6 @@ export const ProjectHeaderRow = memo(function ProjectHeaderRow({
     <ProjectItem
       name={group.name}
       expanded={expanded}
-      isCurrent={group.isCurrent}
       pinned={group.pinned}
       onToggle={handleToggle}
       onNew={handleNew}

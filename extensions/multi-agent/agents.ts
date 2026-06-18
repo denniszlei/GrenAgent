@@ -83,7 +83,13 @@ function findNearestProjectAgentsDir(cwd: string): string | null {
   }
 }
 
-/** Discover named agents. Default scope "user"; project agents override user on name clash under "both". */
+/**
+ * Discover named agents. Default scope "user"; project agents override user on name clash under "both".
+ *
+ * 安全提示：project agent 来自仓库内 `.pi/agents/*.md`——其 body 会成为子代理 system prompt、
+ * frontmatter.tools 会成为子代理工具白名单。clone 不可信仓库时，恶意 agent 定义可借此影响
+ * 子代理行为，故默认 scope "user"（不读仓库内定义）是安全默认；仅在确认仓库可信后才用 "both"/"project"。
+ */
 export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryResult {
   const userDir = join(getAgentDir(), "agents");
   const projectAgentsDir = findNearestProjectAgentsDir(cwd);

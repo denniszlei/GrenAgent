@@ -1,8 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { useLayoutStore } from './layoutStore';
-import type { ChatMessage } from './agentReducer';
-import { taskLabel } from '../features/panels/subagentUtils';
 
 export type DockRegion = 'right' | 'bottom';
 export type DockTabKind = 'terminal' | 'page' | 'subagent' | 'subagentLog';
@@ -30,6 +28,8 @@ export type PageView = PagePayload;
 export interface SubAgentPayload {
   messageId: string;
   toolCallId: string;
+  /** null/缺省 = 单任务（整条消息）；数字 = 并行/链式里的子代理下标。 */
+  subIndex?: number | null;
 }
 
 /** registry 后端子代理（无对应主对话消息时的兜底视图，仅有最终 output 文本）。 */
@@ -64,12 +64,23 @@ interface DockState {
   reorderTabs: (region: DockRegion, fromIndex: number, toIndex: number) => void;
   moveTabRegion: (id: string, targetRegion: DockRegion, insertIndex?: number) => void;
   openPage: (page: PageView) => void;
+  openSubAgent: (input: SubAgentOpenInput) => void;
   openSubAgentLog: (input: SubAgentLogPayload) => void;
-  syncSubAgentTabs: (messages: ChatMessage[]) => void;
   resetWorkspaceTabs: () => void;
 }
 
-type ToolMessage = Extract<ChatMessage, { kind: 'tool' }>;
+/** 按需打开（或激活）某个子代理的右坞 tab。单任务 subIndex 传 null。 */
+export interface SubAgentOpenInput {
+  messageId: string;
+  toolCallId: string;
+  subIndex: number | null;
+  title: string;
+}
+
+/** 子代理 tab 的稳定 id：单任务用 messageId，多任务用 `${messageId}#${subIndex}`。 */
+export function subAgentTabId(messageId: string, subIndex: number | null): string {
+  return subIndex == null ? messageId : `${messageId}#${subIndex}`;
+}
 
 /** 终端默认标题（Windows → PowerShell）。 */
 export function defaultTerminalTitle(): string {
@@ -221,61 +232,28 @@ export const useDockStore = create<DockState>()(
         useLayoutStore.getState().setRightPanelOpen(true);
       },
 
-      syncSubAgentTabs: (messages) =>
+      openSubAgent: ({ messageId, toolCallId, subIndex, title }) => {
+        const id = subAgentTabId(messageId, subIndex);
         set((s) => {
-          const spawn = messages.filter((m): m is ToolMessage => m.kind === 'tool' && m.toolName === 'spawn_agent');
-          const wantIds = new Set(spawn.map((m) => m.id));
-          const others = s.tabs.filter((t) => t.kind !== 'subagent');
-          const keptById = new Map(
-            s.tabs.filter((t) => t.kind === 'subagent' && wantIds.has(t.id)).map((t) => [t.id, t] as const),
-          );
-          let appendOrder = nextOrder(others, 'right') + keptById.size;
-
-          const subTabs: DockTab[] = spawn.map((m, i) => {
-            const title = `#${i + 1} ${taskLabel(m.args)}`;
-            const existing = keptById.get(m.id);
-            if (existing) return { ...existing, title };
-            return {
-              id: m.id,
-              kind: 'subagent',
-              region: 'right',
-              title,
-              closable: false,
-              order: appendOrder++,
-              payload: { messageId: m.id, toolCallId: m.toolCallId },
-            };
-          });
-
-          const tabs = [...others, ...subTabs];
-          const activeByRegion = { ...s.activeByRegion };
-          (['right', 'bottom'] as DockRegion[]).forEach((region) => {
-            const activeId = activeByRegion[region];
-            if (activeId && !tabs.some((t) => t.id === activeId && t.region === region)) {
-              activeByRegion[region] = tabs.filter((t) => t.region === region).at(-1)?.id ?? null;
-            }
-          });
-          // 子代理流式中 messages 每帧变化都会调到这里，但 spawn_agent 的 id/标题/顺序通常没变。
-          // 结构等价时返回原 state，避免每帧重建 tabs 触发整坞（TabStrip/TabBodyStack）重渲染。
-          const sameTabs =
-            tabs.length === s.tabs.length &&
-            tabs.every((t, i) => {
-              const o = s.tabs[i];
-              return (
-                !!o &&
-                o.id === t.id &&
-                o.kind === t.kind &&
-                o.region === t.region &&
-                o.title === t.title &&
-                o.order === t.order &&
-                o.closable === t.closable
-              );
-            });
-          const sameActive =
-            activeByRegion.right === s.activeByRegion.right &&
-            activeByRegion.bottom === s.activeByRegion.bottom;
-          if (sameTabs && sameActive) return s;
-          return { tabs, activeByRegion };
-        }),
+          const exists = s.tabs.some((t) => t.id === id);
+          const tabs = exists
+            ? s.tabs.map((t) => (t.id === id ? { ...t, title } : t))
+            : [
+                ...s.tabs,
+                {
+                  id,
+                  kind: 'subagent' as const,
+                  region: 'right' as const,
+                  title,
+                  closable: true,
+                  order: nextOrder(s.tabs, 'right'),
+                  payload: { messageId, toolCallId, subIndex },
+                },
+              ];
+          return { tabs, activeByRegion: { ...s.activeByRegion, right: id } };
+        });
+        useLayoutStore.getState().setRightPanelOpen(true);
+      },
 
       resetWorkspaceTabs: () =>
         set((s) => {

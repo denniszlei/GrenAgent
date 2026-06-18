@@ -17,4 +17,12 @@ describe('buildConversations with optimistic sessions', () => {
     expect(items).toHaveLength(1);
     expect(items[0].name).toBe('你好');
   });
+
+  it('keeps pinned conversations before newer unpinned conversations', () => {
+    const old = { ...mk('/w/works/old', '/w/works/old/s.jsonl', '旧对话'), timestamp: '2026-01-01T00:00:00Z' };
+    const recent = { ...mk('/w/works/recent', '/w/works/recent/s.jsonl', '新对话'), timestamp: '2026-01-03T00:00:00Z' };
+    const items = buildConversations([recent, old], '/w/works', '', '', [], ['/w/works/old']);
+
+    expect(items.map((item) => item.cwd)).toEqual(['/w/works/old', '/w/works/recent']);
+  });
 });

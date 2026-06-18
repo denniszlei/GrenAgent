@@ -1,0 +1,19 @@
+{
+  "name": "pi-diagram-hint",
+  "version": "0.1.0",
+  "description": "Nudge the model to emit mermaid code blocks (rendered to vector diagrams) instead of ASCII art.",
+  "private": true,
+  "type": "module",
+  "keywords": ["pi-package", "pi-extension", "mermaid", "diagram"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "vitest": "^4.1.8"
+  }
+}

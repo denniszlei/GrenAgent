@@ -1,7 +1,13 @@
 import type { AgentEvent, AgentMessage, AssistantMessageEvent } from '../lib/pi';
 
+/** 用户消息里的图片（base64），用于在气泡中回显发送的图片。 */
+export interface UserImage {
+  mimeType: string;
+  data: string;
+}
+
 export type ChatMessage =
-  | { kind: 'user'; id: string; text: string }
+  | { kind: 'user'; id: string; text: string; images?: UserImage[]; steering?: boolean }
   | {
       kind: 'assistant';
       id: string;
@@ -24,6 +30,11 @@ export interface AgentState {
   steering: string[];
   followUp: string[];
   lastError?: string;
+  /** 发送失败自动重试中的进度（attempt 从 1 起，max 为总重试次数）；非重试时为 undefined。 */
+  retrying?: { attempt: number; max: number };
+  /** 用户主动中断进行中：abort 触发的 "request aborted" 类报错不该弹红条，置位期间 reducer 丢弃这些
+   * 错误（仅抑制用户主动中断，不影响真实失败）。由 ChatView 点停止时置位，agent_start/agent_end 清位。 */
+  aborting?: boolean;
 }
 
 export function initialAgentState(): AgentState {
@@ -75,6 +86,24 @@ function extractText(msg: AgentMessage): { text: string; thinking: string } {
     }
   }
   return { text, thinking };
+}
+
+/** 提取用户消息里的图片块（与发送格式一致：{type:'image', mimeType, data}）。Pi 用别的格式则不提取。 */
+function extractImages(msg: AgentMessage): UserImage[] {
+  const content = msg.content;
+  if (!Array.isArray(content)) return [];
+  const out: UserImage[] = [];
+  for (const block of content as Array<Record<string, unknown> | null>) {
+    if (!block || typeof block !== 'object') continue;
+    if (
+      block.type === 'image' &&
+      typeof block.mimeType === 'string' &&
+      typeof block.data === 'string'
+    ) {
+      out.push({ mimeType: block.mimeType, data: block.data });
+    }
+  }
+  return out;
 }
 
 interface PendingToolCall {
@@ -134,12 +163,14 @@ function applyCustomMessage(state: AgentState, msg: AgentMessage): AgentState {
 export function applyEvent(state: AgentState, event: AgentEvent): AgentState {
   switch (event.type) {
     case 'agent_start':
-      return { ...state, isStreaming: true, lastError: undefined };
+      // 一轮真正开始流式：清掉「正在重试」指示（成功重连/重发）、上一条错误与中断标记。
+      return { ...state, isStreaming: true, lastError: undefined, retrying: undefined, aborting: false };
 
     case 'agent_end':
       return {
         ...state,
         isStreaming: false,
+        aborting: false,
         messages: state.messages.map((m) =>
           m.kind === 'assistant' ? { ...m, streaming: false } : m,
         ),
@@ -191,13 +222,15 @@ export function applyEvent(state: AgentState, event: AgentEvent): AgentState {
       const errMsg = messageError(ev.message);
       const messages = [...state.messages];
       const idx = lastIndex(messages, (m) => m.kind === 'assistant' && m.streaming);
+      // 用户主动中断期间，abort 触发的 errorMessage 不弹红条（aborting 由 ChatView 置位）。
+      const showErr = errMsg && !state.aborting ? errMsg : undefined;
       if (idx < 0) {
         if (!text && !thinking) {
-          return errMsg ? { ...state, lastError: errMsg } : state;
+          return showErr ? { ...state, lastError: showErr } : state;
         }
         return {
           ...state,
-          ...(errMsg ? { lastError: errMsg } : {}),
+          ...(showErr ? { lastError: showErr } : {}),
           messages: [
             ...messages,
             {
@@ -228,7 +261,7 @@ export function applyEvent(state: AgentState, event: AgentEvent): AgentState {
           ...thinkingTiming(cur, finalThinking, text, true),
         };
       }
-      return errMsg ? { ...state, messages, lastError: errMsg } : { ...state, messages };
+      return showErr ? { ...state, messages, lastError: showErr } : { ...state, messages };
     }
 
     case 'message_update': {
@@ -318,6 +351,8 @@ export function applyEvent(state: AgentState, event: AgentEvent): AgentState {
       // 兜底：捕获未显式建模、但带 string error 字段的错误事件，避免失败被静默吞掉。
       const maybeError = (event as { error?: unknown }).error;
       if (typeof maybeError === 'string' && maybeError.trim()) {
+        // 用户主动中断期间丢弃 abort 报错，仅停流不弹红条。
+        if (state.aborting) return { ...state, isStreaming: false };
         return { ...state, lastError: maybeError, isStreaming: false };
       }
       return state;
@@ -325,11 +360,29 @@ export function applyEvent(state: AgentState, event: AgentEvent): AgentState {
   }
 }
 
-/** 本地插入一条用户消息（pi 不会回发用户消息，需前端在发送时主动加入）。 */
-export function addUserMessage(state: AgentState, text: string): AgentState {
+/**
+ * 本地插入一条用户消息（pi 不会回发用户消息，需前端在发送时主动加入）。
+ * steering=true 表示这是执行中注入当前回合的引导消息——不视为「新一轮等待响应」，
+ * 避免触发「准备响应中」占位（AI 此刻已在响应）。
+ */
+export function addUserMessage(
+  state: AgentState,
+  text: string,
+  images?: UserImage[],
+  steering?: boolean,
+): AgentState {
   return {
     ...state,
-    messages: [...state.messages, { kind: 'user', id: nextId(), text }],
+    messages: [
+      ...state.messages,
+      {
+        kind: 'user',
+        id: nextId(),
+        text,
+        images: images?.length ? images : undefined,
+        ...(steering ? { steering: true } : {}),
+      },
+    ],
   };
 }
 
@@ -356,7 +409,9 @@ export function messagesFromAgent(
     }
     if (msg.role === 'user') {
       const { text } = extractText(msg);
-      if (text.trim()) out.push({ kind: 'user', id: nextId(), text });
+      const images = extractImages(msg);
+      if (text.trim() || images.length)
+        out.push({ kind: 'user', id: nextId(), text, images: images.length ? images : undefined });
       continue;
     }
     if (msg.role === 'assistant') {

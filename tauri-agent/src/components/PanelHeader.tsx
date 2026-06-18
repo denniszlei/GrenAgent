@@ -11,7 +11,8 @@ const styles = createStaticStyles(({ css }) => ({
     height: ${HEADER_HEIGHT}px;
     padding-inline: 12px;
     border-block-end: 1px solid ${cssVar.colorBorderSecondary};
-    background: ${cssVar.colorBgElevated};
+    /* 透明继承所在列底色（侧栏/内容），避免顶栏悬浮成更亮的色块、与列身割裂。 */
+    background: transparent;
   `,
   title: css`
     font-size: 14px;

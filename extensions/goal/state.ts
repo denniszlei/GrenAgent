@@ -1,6 +1,8 @@
 export interface GoalState {
   condition: string;
   react: number;
+  /** 暂停中：agent_end 时不裁判、不重入，目标挂起直到 resume。 */
+  paused: boolean;
 }
 
 interface CustomEntryLike {
@@ -17,7 +19,7 @@ export function restoreFromEntries(entries: CustomEntryLike[]): GoalState | unde
   const entry = entries.filter((e) => e.type === "custom" && e.customType === "goal").pop();
   const data = entry?.data as Partial<GoalState> | null | undefined;
   if (data && typeof data.condition === "string" && data.condition.length > 0) {
-    return { condition: data.condition, react: Number(data.react) || 0 };
+    return { condition: data.condition, react: Number(data.react) || 0, paused: data.paused === true };
   }
   return undefined;
 }

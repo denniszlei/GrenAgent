@@ -1,18 +1,62 @@
-import { Modal } from '@lobehub/ui';
-import { useEffect, useState } from 'react';
-import { extensionUiRespond, onPiUiRequest, type PiUiRequestEnvelope } from '../../lib/pi';
+import { App } from 'antd';
+import { useEffect } from 'react';
+import { onPiUiRequest } from '../../lib/pi';
 import { usePlanModeStore } from '../../stores/planModeStore';
+import { useGoalStore, type GoalInfo } from '../../stores/goalStore';
 import { useMcpStatusStore, type McpServerStatus } from '../../stores/mcpStatusStore';
+import { isAgentMode, useModeStore } from '../../stores/modeStore';
+import { useUiPromptStore } from '../../stores/uiPromptStore';
+
+type MessageLevel = 'info' | 'success' | 'warning' | 'error';
+
+/** goal 状态由 sidecar 以 JSON 字符串经 setStatus 推送（condition + paused + react）。 */
+function parseGoalStatus(statusText: unknown): GoalInfo | undefined {
+  if (typeof statusText !== 'string' || !statusText) return undefined;
+  try {
+    const parsed = JSON.parse(statusText) as Partial<GoalInfo>;
+    if (parsed && typeof parsed.condition === 'string' && parsed.condition) {
+      return {
+        condition: parsed.condition,
+        paused: parsed.paused === true,
+        react: Number(parsed.react) || 0,
+      };
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+/** notify 文本字段名因 sidecar 而异，按优先级取第一个非空字符串。 */
+function notifyText(request: Record<string, unknown>): string | undefined {
+  for (const key of ['message', 'title', 'text', 'content']) {
+    const v = request[key];
+    if (typeof v === 'string' && v) return v;
+  }
+  return undefined;
+}
+
+/** notify 级别字段名因 sidecar 而异，归一到 antd message 的四个级别，默认 info。 */
+function notifyLevel(request: Record<string, unknown>): MessageLevel {
+  for (const key of ['level', 'type', 'severity', 'kind']) {
+    const v = request[key];
+    if (v === 'success' || v === 'warning' || v === 'error' || v === 'info') return v;
+  }
+  return 'info';
+}
 
 /**
- * Renders extension UI requests (confirm/select) emitted by Pi extensions over
- * `pi://ui-request` and sends the user's answer back via `extension_ui_respond`.
+ * 分发 Pi 扩展经 `pi://ui-request` 发来的 UI 请求：
+ *  - setStatus → 写对应 zustand store（模式 / plan / goal / mcp）
+ *  - notify    → toast 提示
+ *  - confirm / select / input → 写 uiPromptStore，由 ChatInput 上方的 PromptRequestCard
+ *    内联渲染为选项卡片（不再弹 Modal）。用户应答仍经 `extension_ui_response` 回传，
+ *    否则 sidecar 端 ctx.ui.* 的 promise 永不 resolve、该回合会挂起。
  *
- * The response MUST carry `type: "extension_ui_response"`, otherwise the Pi
- * sidecar never resolves the pending `ctx.ui.*` promise and the agent turn hangs.
+ * 本组件只做事件分发（无可见 UI），故 return null。
  */
 export function ExtensionUiHost() {
-  const [item, setItem] = useState<PiUiRequestEnvelope | null>(null);
+  const { message } = App.useApp();
 
   useEffect(() => {
     let un: undefined | (() => void);
@@ -20,8 +64,14 @@ export function ExtensionUiHost() {
       const method = e.request.method;
       if (method === 'setStatus') {
         const r = e.request as { statusKey?: unknown; statusText?: unknown };
-        if (r.statusKey === 'plan-mode') {
-          usePlanModeStore.getState().setStatus(typeof r.statusText === 'string' ? r.statusText : undefined);
+        const text = typeof r.statusText === 'string' ? r.statusText : undefined;
+        if (r.statusKey === 'agent-mode') {
+          // 当前模式由 agent-mode 扩展推送（agent/ask/debug/plan），供模式选择器回读高亮。
+          if (isAgentMode(r.statusText)) useModeStore.getState().setMode(e.workspace, r.statusText);
+        } else if (r.statusKey === 'plan-mode') {
+          usePlanModeStore.getState().setStatus(text);
+        } else if (r.statusKey === 'goal') {
+          useGoalStore.getState().setGoal(parseGoalStatus(r.statusText));
         } else if (r.statusKey === 'mcp') {
           let servers: McpServerStatus[] = [];
           try {
@@ -34,47 +84,21 @@ export function ExtensionUiHost() {
         }
         return;
       }
+      // notify 是即发提示（命令执行确认 / 扩展告知），用 toast 呈现，否则用户会觉得「没反应」。
+      if (method === 'notify') {
+        const text = notifyText(e.request as Record<string, unknown>);
+        if (text) message[notifyLevel(e.request as Record<string, unknown>)](text);
+        return;
+      }
+      // 交互请求 → 输入框上方内联卡片（PromptRequestCard 渲染并回传），不弹窗。
       if (method === 'confirm' || method === 'select' || method === 'input') {
-        setItem(e);
+        useUiPromptStore.getState().setRequest({ workspace: e.workspace, request: e.request });
       }
     }).then((fn) => {
       un = fn;
     });
     return () => un?.();
-  }, []);
+  }, [message]);
 
-  if (!item) return null;
-  const { workspace = '.', request } = item;
-  const isConfirm = request.method === 'confirm';
-  const options: string[] = isConfirm
-    ? ['确定', '取消']
-    : Array.isArray(request.options)
-      ? request.options
-      : ['确定', '取消'];
-
-  // confirm → { confirmed }; select/input → { value }; dismiss → { cancelled }.
-  const send = (payload: Record<string, unknown>) => {
-    void extensionUiRespond(workspace, { type: 'extension_ui_response', id: request.id, ...payload });
-    setItem(null);
-  };
-  const pick = (opt: string) => send(isConfirm ? { confirmed: opt === '确定' } : { value: opt });
-  const dismiss = () => send(isConfirm ? { confirmed: false } : { cancelled: true });
-
-  // confirm's prompt lives in `message`; select/input's prompt lives in `title`
-  // (rendered in the body to avoid a multi-line Modal header).
-  const heading = isConfirm ? request.title ?? '确认' : '请确认操作';
-  const body = isConfirm ? request.message ?? request.title ?? '' : request.title ?? '';
-
-  return (
-    <Modal footer={null} onCancel={dismiss} open title={heading}>
-      <div style={{ marginBottom: 12, whiteSpace: 'pre-wrap' }}>{body}</div>
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        {options.map((opt, i) => (
-          <button data-testid={`ext-ui-opt-${i}`} key={opt} onClick={() => pick(opt)} type="button">
-            {opt}
-          </button>
-        ))}
-      </div>
-    </Modal>
-  );
+  return null;
 }

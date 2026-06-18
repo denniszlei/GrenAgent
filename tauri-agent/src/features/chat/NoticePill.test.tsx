@@ -21,4 +21,12 @@ describe('NoticePill', () => {
     render(<NoticePill customType="other" content="x" />);
     expect(screen.getByTestId('notice-pill').textContent).toContain('已注入上下文');
   });
+
+  it('折叠头显示记忆条数（剥离重复大标题后数列表项）', () => {
+    const content = '# Relevant long-term memory (auto-recalled)\n\n- a\n- b\n- c';
+    render(<NoticePill customType="long-term-memory" content={content} />);
+    const el = screen.getByTestId('notice-pill');
+    expect(el.textContent).toContain('已注入长期记忆');
+    expect(el.textContent).toContain('3 条');
+  });
 });

@@ -7,7 +7,7 @@ alwaysApply: true
 <!-- managed-by: Cursor伟哥续命良药 MCP (auto-generated, do not edit) -->
 <!-- workspace: Pi -->
 <!-- server: Cursor伟哥续命良药 · Pi -->
-<!-- plugin-version: 9.4.57 -->
+<!-- plugin-version: 9.4.100 -->
 
 # 关于 Cursor伟哥续命良药 MCP
 
@@ -79,6 +79,14 @@ alwaysApply: true
 
 **`open_dashboard`**：用户问"插件现在状态怎么样" / "远程控制台地址是什么" / "心跳正常吗"等运维问题时调用。非阻塞，立即在面板渲染**实时仪表盘**（AI 心跳 / 队列长度 / 活跃 chat / 控制台 URL / 最近对话历史），每 5s 自动刷新。
 
+**`make_deeplink`**：生成 Cursor deeplink 让用户一键打开预填 prompt 的新 chat / 创建 command / 创建 rule / 安装 MCP server。用户点击后 Cursor 会要求确认才执行（绝不自动执行）。何时用：
+
+- 远程 / 手机端冷启动（桌面没有 AI 在 check_messages 循环里时，生成 prompt deeplink 让用户点开新 chat 启动一轮）
+- 分享 rule / command 给用户或同事一键添加
+- 一键安装某个 MCP server（type=mcp_install）
+
+`web=true` 生成 `https://cursor.com/link/...`（浏览器 / 手机可开），`web=false` 生成 `cursor://anysphere.cursor-deeplink/...`（桌面 Cursor 直接唤起）。链接上限 8000 字符。
+
 **`show_image`**：想给用户展示一张图片时调用——支持 3 种 src：
 - `data:image/png;base64,XXX...` — 已有 base64 直接展示
 - `https://example.com/img.png` — 远程图片 URL
@@ -86,7 +94,24 @@ alwaysApply: true
 
 适合 AI 生成截图 / 图表 / mockup 想给用户预览的场景，比纯文本描述好。
 
-## 4.6 可 `@` 引用的资源（messenger://）
+## 4.6 用户侧 UI 能力（用户问"怎么操作"时正确引导）
+
+下面这些是用户在 **侧栏 webview** 和 **远程控制台** 能用的能力，AI 自己不直接调，但被用户问到时要知道：
+
+**侧栏 webview 输入框**：
+- **`@` 触发文件补全** — 输入 `@` 弹下拉，模糊匹配 workspace 文件；↑↓ 导航、Enter/Tab 选中、Esc 关闭；选中后插入 `@<相对路径> ` token（AI 看到这种 token 可自行 Read 那个文件）
+- **拖拽 VSCode 资源管理器文件** — 默认插入 `@<相对路径> ` token；按住 **Shift 拖放** 改为读完整文件内容拼到输入框
+- **粘贴图片** — 直接 Ctrl+V 粘贴截图，UI 显示缩略图
+
+**远程控制台**（手机扫码 / 远程访问）：
+- **代理友好** — 检测到代理拦截 WS 自动切 HTTP 轮询模式，所有功能仍可用（仅实时性下降 ~2s）；顶部黄色 banner 提示如何关代理 LAN 拦截
+- **AI 提问 `ask_text` 纯文本** — 弹 4 行 textarea，Ctrl+Enter 提交
+- **AI 推送图片 `show_image`** — 右下角弹独立卡片，含下载/复制/全屏工具栏；手机端底部全宽
+- **chat 切换** — 多 chat 同开时顶部下拉选择跟随哪个 chat；双击 chat tab 重命名；× 关闭某 chat
+
+**两端共有**：消息发送 / AI 提问回答 / 批准 / Diff 审查 / 模板 / 历史搜索 / 触发器开关
+
+## 4.7 可 `@` 引用的资源（messenger://）
 
 本插件暴露 4 个 resource，用户可在 chat 里用 `@` 引用：
 

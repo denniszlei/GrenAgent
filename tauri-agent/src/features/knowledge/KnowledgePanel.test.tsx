@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { kbStats, kbSources, kbChunks, runCommand } = vi.hoisted(() => ({
+const { kbStats, kbSources, kbChunks, runCommand, openDialog } = vi.hoisted(() => ({
   kbStats: vi.fn(() => Promise.resolve({ chunks: 3, sources: 2, model: 'text-embed' })),
   kbSources: vi.fn(() =>
     Promise.resolve([
@@ -11,14 +11,16 @@ const { kbStats, kbSources, kbChunks, runCommand } = vi.hoisted(() => ({
   ),
   kbChunks: vi.fn(() => Promise.resolve([{ id: 'c1', text: 'hello chunk' }])),
   runCommand: vi.fn(() => Promise.resolve()),
+  openDialog: vi.fn(),
 }));
 
 vi.mock('../../stores/AgentStoreContext', () => ({
   useAgentStoreContext: () => ({ workspace: '/ws' }),
 }));
 vi.mock('../../lib/pi', () => ({ pi: { kbStats, kbSources, kbChunks, runCommand } }));
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: openDialog }));
 
-import { KnowledgePanel } from './KnowledgePanel';
+import { KnowledgePanel, toWorkspacePath } from './KnowledgePanel';
 
 afterEach(() => {
   cleanup();
@@ -50,11 +52,40 @@ describe('KnowledgePanel', () => {
     await waitFor(() => expect(runCommand).toHaveBeenCalledWith('/ws', '/kb clear'));
   });
 
-  it('adds a document via /kb add <path>', async () => {
-    vi.spyOn(window, 'prompt').mockReturnValue('docs/new.md');
+  it('adds a picked file via /kb add, relativized to the workspace', async () => {
+    openDialog.mockResolvedValueOnce('/ws/docs/new.md');
     render(<KnowledgePanel />);
     await waitFor(() => expect(screen.getByTestId('kb-add')).toBeTruthy());
     fireEvent.click(screen.getByTestId('kb-add'));
     await waitFor(() => expect(runCommand).toHaveBeenCalledWith('/ws', '/kb add docs/new.md'));
+  });
+
+  it('indexes every file when multiple are picked', async () => {
+    openDialog.mockResolvedValueOnce(['/ws/a.md', '/outside/b.md']);
+    render(<KnowledgePanel />);
+    await waitFor(() => expect(screen.getByTestId('kb-add')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('kb-add'));
+    await waitFor(() => expect(runCommand).toHaveBeenCalledWith('/ws', '/kb add a.md'));
+    expect(runCommand).toHaveBeenCalledWith('/ws', '/kb add /outside/b.md');
+  });
+
+  it('does nothing when the picker is cancelled', async () => {
+    openDialog.mockResolvedValueOnce(null);
+    render(<KnowledgePanel />);
+    await waitFor(() => expect(screen.getByTestId('kb-add')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('kb-add'));
+    await waitFor(() => expect(openDialog).toHaveBeenCalled());
+    expect(runCommand).not.toHaveBeenCalled();
+  });
+});
+
+describe('toWorkspacePath', () => {
+  it('relativizes paths inside the workspace and normalizes separators', () => {
+    expect(toWorkspacePath('D:\\proj\\docs\\a.md', 'D:\\proj')).toBe('docs/a.md');
+    expect(toWorkspacePath('/ws/docs/a.md', '/ws')).toBe('docs/a.md');
+  });
+
+  it('keeps absolute paths that live outside the workspace', () => {
+    expect(toWorkspacePath('/other/a.md', '/ws')).toBe('/other/a.md');
   });
 });

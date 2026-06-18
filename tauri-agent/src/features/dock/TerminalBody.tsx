@@ -37,6 +37,20 @@ export function TerminalBody({ tab, active }: DockBodyProps) {
     else pendingRef.current.push(normalized);
   }, []);
 
+  // fit 前确认容器有尺寸：keep-alive 的隐藏 tab 是 display:none（0 尺寸），此时 xterm
+  // 渲染器没有 dimensions，直接 fit() 会抛 TypeError（Viewport 读 dimensions）崩掉整页。
+  const safeFit = useCallback(() => {
+    const host = hostRef.current;
+    const fit = fitRef.current;
+    if (!host || !fit) return;
+    if (host.clientWidth === 0 || host.clientHeight === 0) return;
+    try {
+      fit.fit();
+    } catch {
+      /* 尺寸异常时 xterm 偶发抛错，吞掉避免整页崩 */
+    }
+  }, []);
+
   // 创建 xterm（仅一次），卸载时销毁。
   useEffect(() => {
     const host = hostRef.current;
@@ -54,14 +68,14 @@ export function TerminalBody({ tab, active }: DockBodyProps) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
-    fit.fit();
+    termRef.current = term;
+    fitRef.current = fit;
+    safeFit();
     const d = term.onData((data) => {
       const sid = shellIdRef.current;
       if (!sid) return;
       void terminal.shellWrite(sid, data).catch((err) => write(`\r\n[write error] ${String(err)}\r\n`));
     });
-    termRef.current = term;
-    fitRef.current = fit;
     disposeRef.current = d;
     if (pendingRef.current.length) {
       pendingRef.current.forEach((c) => term.write(c));
@@ -153,21 +167,21 @@ export function TerminalBody({ tab, active }: DockBodyProps) {
   useEffect(() => {
     if (!active) return;
     requestAnimationFrame(() => {
-      fitRef.current?.fit();
+      safeFit();
       termRef.current?.focus();
     });
-  }, [active]);
+  }, [active, safeFit]);
 
   // 容器尺寸变化时 refit（仅激活态）。
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     const ro = new ResizeObserver(() => {
-      if (active) fitRef.current?.fit();
+      if (active) safeFit();
     });
     ro.observe(host);
     return () => ro.disconnect();
-  }, [active]);
+  }, [active, safeFit]);
 
   return <div ref={hostRef} className={dockTabStyles.terminalHost} />;
 }

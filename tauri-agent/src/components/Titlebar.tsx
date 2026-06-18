@@ -4,6 +4,7 @@ import { createStaticStyles, cssVar } from 'antd-style';
 import { Maximize2, Minimize2, Minus, X } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { TITLE_BAR_HEIGHT } from './titlebarConstants';
+import { GrenAgentBrand } from './GrenAgentBrand';
 
 export { TITLE_BAR_HEIGHT };
 
@@ -75,7 +76,7 @@ export function Titlebar() {
   return (
     <div data-tauri-drag-region className={styles.bar}>
       <span data-tauri-drag-region className={styles.title}>
-        Hermes
+        <GrenAgentBrand size={16} />
       </span>
       <div className={styles.controls}>
         <ActionIcon

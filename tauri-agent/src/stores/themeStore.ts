@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { DEFAULT_COLOR_SCHEME } from '../theme/colorSchemes';
 
 export type Appearance = 'light' | 'dark' | 'auto';
 
@@ -25,9 +26,12 @@ interface ThemeState {
   appearance: Appearance;
   primaryColor?: PrimaryColor;
   neutralColor?: NeutralColor;
+  /** 配色预设 id（见 theme/colorSchemes）；驱动表面/文字/边框/主色的整体方案。 */
+  colorScheme: string;
   setAppearance: (appearance: Appearance) => void;
   setPrimaryColor: (color?: PrimaryColor) => void;
   setNeutralColor: (color?: NeutralColor) => void;
+  setColorScheme: (id: string) => void;
   toggleAppearance: () => void;
 }
 
@@ -37,9 +41,11 @@ export const useThemeStore = create<ThemeState>()(
       appearance: 'dark',
       primaryColor: undefined,
       neutralColor: undefined,
+      colorScheme: DEFAULT_COLOR_SCHEME,
       setAppearance: (appearance) => set({ appearance }),
       setPrimaryColor: (primaryColor) => set({ primaryColor }),
       setNeutralColor: (neutralColor) => set({ neutralColor }),
+      setColorScheme: (colorScheme) => set({ colorScheme }),
       toggleAppearance: () =>
         set((state) => ({ appearance: state.appearance === 'dark' ? 'light' : 'dark' })),
     }),
@@ -49,6 +55,7 @@ export const useThemeStore = create<ThemeState>()(
         appearance: state.appearance,
         primaryColor: state.primaryColor,
         neutralColor: state.neutralColor,
+        colorScheme: state.colorScheme,
       }),
     },
   ),

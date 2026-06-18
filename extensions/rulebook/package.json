@@ -1,0 +1,19 @@
+{
+  "name": "pi-rulebook",
+  "version": "0.1.0",
+  "description": "Declarative rulebook + drift correction for the Pi coding agent: tool-boundary blocks and turn-level rule injection (TTSR-equivalent within upstream hooks).",
+  "private": true,
+  "type": "module",
+  "keywords": ["pi-package", "pi-extension", "rulebook", "rules", "ttsr"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "vitest": "^4.1.8"
+  }
+}

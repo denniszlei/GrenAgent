@@ -1,8 +1,8 @@
 import { Block, Icon, NeuralNetworkLoading } from '@lobehub/ui';
 import { cssVar } from 'antd-style';
-import { Atom, Check, X } from 'lucide-react';
+import { Atom, Check, TriangleAlert, X } from 'lucide-react';
 
-export type StatusKind = 'running' | 'done' | 'error' | 'thinking';
+export type StatusKind = 'running' | 'done' | 'error' | 'partial' | 'thinking';
 
 interface StatusIndicatorProps {
   status: StatusKind;
@@ -18,6 +18,9 @@ export function StatusIndicator({ status }: StatusIndicatorProps) {
       break;
     case 'error':
       icon = <Icon color={cssVar.colorError} icon={X} size={14} />;
+      break;
+    case 'partial':
+      icon = <Icon color={cssVar.colorWarning} icon={TriangleAlert} size={14} />;
       break;
     case 'thinking':
       icon = <Icon color={cssVar.colorTextSecondary} icon={Atom} size={14} />;

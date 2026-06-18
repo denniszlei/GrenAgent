@@ -18,3 +18,12 @@ input[type='password'] {
   width: 100%;
   height: 100vh;
 }
+
+/* 暗色主题下，主题色(colorPrimary)多为中高亮度彩色，antd v6 的 Checkbox 选中态默认是
+   主题色底 + 白色对勾(.ant-checkbox-checked::after，由 border 绘制)，白勾叠在亮色底上
+   对比不足、容易看不清。改用深色对勾，叠在亮主题色上高对比、锐利；再加一层极轻浅色描边，
+   兜底主题色本身偏暗的情况。仅暗色生效，亮色模式不受影响。 */
+html[data-theme='dark'] .ant-checkbox-checked:not(.ant-checkbox-disabled)::after {
+  border-color: rgba(0, 0, 0, 0.85);
+  filter: drop-shadow(0 0 0.5px rgba(255, 255, 255, 0.5));
+}

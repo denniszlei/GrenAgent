@@ -5,7 +5,8 @@
 //! "role":"assistant","provider":..,"model":..,"usage":{input,output,cacheRead,
 //! cacheWrite,totalTokens,cost:{total}}}}`。日期取 timestamp 前 10 位。
 
-use std::collections::{BTreeMap, HashMap};
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BinaryHeap, HashMap};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
@@ -84,6 +85,32 @@ pub struct CallUsage {
     pub total_tokens: u64,
     pub cost: f64,
 }
+
+/// 「最近调用」top-N 堆的元素：按 (timestamp, 单调序号) 排序。
+/// 单调序号作为 tiebreak，保证同一时间戳的多条调用不会互相挤掉、顺序稳定。
+struct CallEntry {
+    sort_key: (String, u64),
+    call: CallUsage,
+}
+impl PartialEq for CallEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.sort_key == other.sort_key
+    }
+}
+impl Eq for CallEntry {}
+impl PartialOrd for CallEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for CallEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.sort_key.cmp(&other.sort_key)
+    }
+}
+
+/// 跨会话「最近调用明细」最多保留条数（与前端展示一致）。
+const MAX_RECENT_CALLS: usize = 500;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -175,10 +202,12 @@ pub async fn usage_report() -> Result<UsageReport, String> {
 
     let mut totals = UsageTotals::default();
     let mut by_day: BTreeMap<String, (u64, f64)> = BTreeMap::new();
-    let mut by_model: HashMap<String, (String, u64, f64, u64)> = HashMap::new();
+    // 键用 (provider, model) 复合：不同供应商下的同名模型（如多个代理都叫 gpt-4o）不应被合并。
+    let mut by_model: HashMap<(String, String), (u64, f64, u64)> = HashMap::new();
     let mut by_project: HashMap<String, (Option<String>, u64, f64, u64)> = HashMap::new();
     let mut recent: Vec<SessionUsage> = Vec::new();
-    let mut calls: Vec<CallUsage> = Vec::new();
+    let mut calls: BinaryHeap<Reverse<CallEntry>> = BinaryHeap::new();
+    let mut call_seq: u64 = 0;
 
     for path in &files {
         // 跳过首行非法 / 解析失败的会话文件（如 cwd 反斜杠未转义的损坏种子文件），
@@ -216,17 +245,30 @@ pub async fn usage_report() -> Result<UsageReport, String> {
                 s_tokens += u.total_tokens;
                 s_cost += u.cost;
 
-                calls.push(CallUsage {
-                    timestamp: u.timestamp.clone().or_else(|| ts.clone()),
-                    model: u.model.clone(),
-                    provider: u.provider.clone(),
-                    input: u.input,
-                    output: u.output,
-                    cache_read: u.cache_read,
-                    cache_write: u.cache_write,
-                    total_tokens: u.total_tokens,
-                    cost: u.cost,
-                });
+                call_seq += 1;
+                let ts_key = u
+                    .timestamp
+                    .clone()
+                    .or_else(|| ts.clone())
+                    .unwrap_or_default();
+                calls.push(Reverse(CallEntry {
+                    sort_key: (ts_key, call_seq),
+                    call: CallUsage {
+                        timestamp: u.timestamp.clone().or_else(|| ts.clone()),
+                        model: u.model.clone(),
+                        provider: u.provider.clone(),
+                        input: u.input,
+                        output: u.output,
+                        cache_read: u.cache_read,
+                        cache_write: u.cache_write,
+                        total_tokens: u.total_tokens,
+                        cost: u.cost,
+                    },
+                }));
+                // 只保留最近 MAX_RECENT_CALLS 条：超出即弹出最旧，避免全量调用进内存。
+                if calls.len() > MAX_RECENT_CALLS {
+                    calls.pop();
+                }
 
                 let day = if u.day.is_empty() {
                     ts.as_deref().map(day_of).unwrap_or_default()
@@ -237,10 +279,10 @@ pub async fn usage_report() -> Result<UsageReport, String> {
                 d.0 += u.total_tokens;
                 d.1 += u.cost;
 
-                let m = by_model.entry(u.model).or_insert((u.provider, 0, 0.0, 0));
-                m.1 += u.total_tokens;
-                m.2 += u.cost;
-                m.3 += 1;
+                let m = by_model.entry((u.provider, u.model)).or_insert((0, 0.0, 0));
+                m.0 += u.total_tokens;
+                m.1 += u.cost;
+                m.2 += 1;
             }
         }
 
@@ -280,7 +322,7 @@ pub async fn usage_report() -> Result<UsageReport, String> {
 
     let mut by_model: Vec<ModelUsage> = by_model
         .into_iter()
-        .map(|(model, (provider, tokens, cost, messages))| ModelUsage {
+        .map(|((provider, model), (tokens, cost, messages))| ModelUsage {
             model,
             provider,
             tokens,
@@ -305,8 +347,13 @@ pub async fn usage_report() -> Result<UsageReport, String> {
     recent.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
     recent.truncate(50);
 
-    calls.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    calls.truncate(500);
+    // 最小堆（按 (timestamp, seq)）→ 按时间倒序的 Vec：into_sorted_vec 对 Reverse 升序，
+    // 即原元素降序，最新在前，与旧 sort 行为一致。
+    let calls: Vec<CallUsage> = calls
+        .into_sorted_vec()
+        .into_iter()
+        .map(|Reverse(e)| e.call)
+        .collect();
 
     Ok(UsageReport {
         totals,

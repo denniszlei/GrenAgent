@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react';
+import ModeAction from './actions/ModeAction';
 import ModelAction from './actions/ModelAction';
 import ThinkingAction from './actions/ThinkingAction';
 import CompactAction from './actions/CompactAction';
@@ -14,6 +15,7 @@ import SpeakAction from './actions/SpeakAction';
  * 新增一个工具按钮 = 在此登记一项 + 在 leftActions/rightActions 数组里加 key。
  */
 export const actionMap = {
+  mode: ModeAction,
   model: ModelAction,
   thinking: ThinkingAction,
   compact: CompactAction,
@@ -32,6 +34,7 @@ export type ActionKey = keyof typeof actionMap;
  * 工具栏里图标悬停有 tooltip，但折进竖排菜单后不易辨认，故菜单里图标旁补一行文字。
  */
 export const ACTION_LABELS: Record<ActionKey, string> = {
+  mode: '模式',
   model: '模型',
   thinking: '思考强度',
   compact: '压缩上下文',
@@ -44,6 +47,7 @@ export const ACTION_LABELS: Record<ActionKey, string> = {
 };
 
 export const DEFAULT_LEFT_ACTIONS: ActionKey[] = [
+  'mode',
   'model',
   'thinking',
   'fileUpload',
@@ -58,7 +62,7 @@ export const DEFAULT_RIGHT_ACTIONS: ActionKey[] = [];
 
 /**
  * 工具栏空间不足时的折叠优先级：靠前者先被收进"更多"溢出菜单。
- * 不在此列表中的 key（如 model）视为主控件，永不折叠。
+ * 不在此列表中的 key（如 mode、model）视为主控件，永不折叠。
  */
 export const COLLAPSE_PRIORITY: ActionKey[] = [
   'speak',
@@ -76,7 +80,8 @@ export const COLLAPSE_PRIORITY: ActionKey[] = [
  * model 取限宽后的上限（见 ModelAction 的 maxWidth），按最坏情况预留以避免溢出。
  */
 export const ACTION_WIDTH = {
-  model: 140,
+  mode: 96,
+  model: 180,
   thinking: 84,
   fileUpload: 28,
   kbAdd: 28,

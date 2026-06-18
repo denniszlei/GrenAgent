@@ -14,7 +14,7 @@ export type SidebarItem =
   | { type: 'pinned-label'; key: string }
   | { type: 'project'; key: string; group: ProjectGroup; expanded: boolean }
   | { type: 'session'; key: string; cwd: string; session: SessionInfo; pinned: boolean }
-  | { type: 'more'; key: string; cwd: string; total: number };
+  | { type: 'more'; key: string; cwd: string; remaining: number };
 
 interface BuildParams {
   conversations: ConversationItem[];
@@ -40,7 +40,7 @@ export function buildSidebarItems(params: BuildParams): SidebarItem[] {
       items.push({ type: 'session', key: `sess-${s.path}`, cwd: g.cwd, session: s, pinned: pinnedSet.has(s.path) });
     }
     const hidden = g.sessions.length - visible.length;
-    if (hidden > 0) items.push({ type: 'more', key: `more-${g.cwd}`, cwd: g.cwd, total: g.sessions.length });
+    if (hidden > 0) items.push({ type: 'more', key: `more-${g.cwd}`, cwd: g.cwd, remaining: hidden });
   };
 
   // 置顶项目放在「对话」分区之上（对齐 Codex 侧栏顺序）

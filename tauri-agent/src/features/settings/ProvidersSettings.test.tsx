@@ -53,7 +53,7 @@ describe('ProvidersSettings', () => {
     expect(await screen.findByTestId('prov-name', undefined, { timeout: 10000 })).toBeTruthy();
   }, 30000);
 
-  it('checking 1M persists contextWindow=1000000; unchecking falls back to 200000', async () => {
+  it('persists a custom contextWindow typed into the input', async () => {
     render(<ProvidersSettings />);
     await waitFor(() => expect(getProviderConfig).toHaveBeenCalled());
 
@@ -74,16 +74,12 @@ describe('ProvidersSettings', () => {
     const lastModelsJson = () =>
       (setProviderConfig.mock.calls.at(-1) as unknown as [string, string])[0];
 
-    // 勾选 1M → contextWindow 落盘 1,000,000
-    fireEvent.click(await screen.findByTestId('prov-model-context1m-0'));
+    // 输入任意上下文窗口 → 原样落盘（不再被 1M / 200k 二选一限制）
+    const ctxInput = screen.getByPlaceholderText('上下文窗口');
+    fireEvent.change(ctxInput, { target: { value: '128000' } });
+    fireEvent.blur(ctxInput);
     fireEvent.click(screen.getByTestId('prov-save'));
     await waitFor(() => expect(setProviderConfig).toHaveBeenCalledTimes(1));
-    expect(ctxOf(lastModelsJson())).toBe(1_000_000);
-
-    // 取消勾选 → 回落默认 200,000
-    fireEvent.click(await screen.findByTestId('prov-model-context1m-0'));
-    fireEvent.click(screen.getByTestId('prov-save'));
-    await waitFor(() => expect(setProviderConfig).toHaveBeenCalledTimes(2));
-    expect(ctxOf(lastModelsJson())).toBe(200_000);
+    expect(ctxOf(lastModelsJson())).toBe(128000);
   }, 30000);
 });

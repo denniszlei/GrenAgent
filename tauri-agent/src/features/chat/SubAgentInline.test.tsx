@@ -22,13 +22,13 @@ const wrap = (ui: React.ReactElement) =>
 
 describe('SubAgentInline', { timeout: 30_000 }, () => {
   it('折叠头显示子代理编号与任务名', () => {
-    wrap(<SubAgentInline messageId="m1" index={1} task="分析工具渲染" result={{}} status="done" />);
+    wrap(<SubAgentInline messageId="m1" toolCallId="c1" index={1} task="分析工具渲染" result={{}} status="done" />);
     expect(screen.getByText(/子代理 #1/)).toBeTruthy();
     expect(screen.getByText(/分析工具渲染/)).toBeTruthy();
   });
 
   it('运行中显示运行提示', () => {
-    wrap(<SubAgentInline messageId="m2" index={2} task="分析主结构" result={{}} status="running" />);
+    wrap(<SubAgentInline messageId="m2" toolCallId="c2" index={2} task="分析主结构" result={{}} status="running" />);
     expect(screen.getByText(/运行中/)).toBeTruthy();
   });
 
@@ -46,6 +46,7 @@ describe('SubAgentInline', { timeout: 30_000 }, () => {
     wrap(
       <SubAgentInline
         messageId="m-bg"
+        toolCallId="c-bg"
         index={1}
         task="后台任务"
         result={{ details: { agentId: 'sa-bg', status: 'running' } }}
@@ -65,7 +66,7 @@ describe('SubAgentInline', { timeout: 30_000 }, () => {
       JSON.stringify({ type: 'tool_execution_end', toolCallId: 'c1', result: {}, isError: false }),
     ].join('\n');
     wrap(
-      <SubAgentInline messageId="m3" index={1} task="t" result={{ details: { transcript } }} status="done" />,
+      <SubAgentInline messageId="m3" toolCallId="c3" index={1} task="t" result={{ details: { transcript } }} status="done" />,
     );
     expect(screen.getByText(/已完成 · 2 步/)).toBeTruthy();
   });

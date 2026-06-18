@@ -3,7 +3,12 @@
 // key is configured. Shares OPENAI_API_KEY with other extensions by default.
 
 import { getConfig } from "../_shared/runtime-config.js";
-import { resolveCapabilityEndpoint, type RegistryLike } from "../_shared/provider-endpoint.js";
+import {
+  capabilityError,
+  capabilityFetch,
+  resolveCapabilityEndpoint,
+  type RegistryLike,
+} from "../_shared/provider-endpoint.js";
 
 export interface EmbeddingConfig {
   enabled: boolean;
@@ -32,7 +37,7 @@ export async function embedTexts(
   if (!config.enabled) throw new Error("embedding disabled: 请在设置-记忆选择 embedding 供应商");
   if (texts.length === 0) return [];
 
-  const res = await fetch(`${config.baseUrl}/embeddings`, {
+  const res = await capabilityFetch(config.baseUrl, "embeddings", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -42,10 +47,16 @@ export async function embedTexts(
     signal,
   });
 
-  if (!res.ok) {
-    throw new Error(`embedding API ${res.status}: ${await res.text().catch(() => res.statusText)}`);
-  }
+  if (!res.ok) throw await capabilityError("embedding API", res);
 
-  const json = (await res.json()) as { data: Array<{ embedding: number[] }> };
-  return json.data.map((d) => d.embedding);
+  const json = (await res.json()) as { data: Array<{ index?: number; embedding: number[] }> };
+  if (json.data.length !== texts.length) {
+    throw new Error(`embedding API 返回数量不符：期望 ${texts.length}，实际 ${json.data.length}`);
+  }
+  // 按 index 排序后再取向量：部分 OpenAI 兼容代理不保证 data 顺序与输入一致，
+  // 乱序会导致向量与原文错位（召回结果错乱且极难排查）。index 缺省时保持原序（稳定排序）。
+  return json.data
+    .slice()
+    .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+    .map((d) => d.embedding);
 }

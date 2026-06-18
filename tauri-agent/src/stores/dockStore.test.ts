@@ -1,23 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useDockStore, defaultTerminalTitle } from './dockStore';
+import { useDockStore, defaultTerminalTitle, subAgentTabId } from './dockStore';
 import { useLayoutStore } from './layoutStore';
-import type { ChatMessage } from './agentReducer';
 
 function reset() {
   localStorage.clear();
   useDockStore.setState({ tabs: [], activeByRegion: { right: null, bottom: null } });
   useLayoutStore.setState({ rightPanelOpen: false, terminalOpen: false });
 }
-
-const spawn = (id: string, toolCallId: string, task: string): ChatMessage => ({
-  kind: 'tool',
-  id,
-  toolCallId,
-  toolName: 'spawn_agent',
-  args: { task },
-  result: {},
-  status: 'running',
-});
 
 describe('dockStore', () => {
   beforeEach(reset);
@@ -75,18 +64,34 @@ describe('dockStore', () => {
     expect(order).toEqual(['page:https://2', 'page:https://1']);
   });
 
-  it('syncSubAgentTabs adds tabs for spawn_agent messages and removes vanished ones', () => {
+  it('openSubAgent opens a closable right tab on demand, activates it, and dedupes by (messageId, subIndex)', () => {
     const s = useDockStore.getState();
-    s.syncSubAgentTabs([spawn('t1', 'c1', 'first'), { kind: 'tool', id: 'b', toolCallId: 'cb', toolName: 'bash', args: {}, result: {}, status: 'done' }, spawn('t2', 'c2', 'second')]);
+    s.openSubAgent({ messageId: 't1', toolCallId: 'c1', subIndex: null, title: '#1 first' });
     let subs = useDockStore.getState().tabs.filter((t) => t.kind === 'subagent');
-    expect(subs.map((t) => t.id)).toEqual(['t1', 't2']);
-    expect(subs[0].closable).toBe(false);
-    expect(subs[0].title).toBe('#1 first');
-    expect(subs[1].title).toBe('#2 second');
-
-    s.syncSubAgentTabs([spawn('t1', 'c1', 'first')]);
-    subs = useDockStore.getState().tabs.filter((t) => t.kind === 'subagent');
     expect(subs.map((t) => t.id)).toEqual(['t1']);
+    expect(subs[0].closable).toBe(true);
+    expect(subs[0].title).toBe('#1 first');
+    expect(useDockStore.getState().activeByRegion.right).toBe('t1');
+    expect(useLayoutStore.getState().rightPanelOpen).toBe(true);
+
+    // re-opening the same unit updates the title instead of adding a tab
+    s.openSubAgent({ messageId: 't1', toolCallId: 'c1', subIndex: null, title: '#1 renamed' });
+    subs = useDockStore.getState().tabs.filter((t) => t.kind === 'subagent');
+    expect(subs).toHaveLength(1);
+    expect(subs[0].title).toBe('#1 renamed');
+  });
+
+  it('openSubAgent gives each parallel/chain unit its own tab id and closeTab does not resurrect it', () => {
+    const s = useDockStore.getState();
+    s.openSubAgent({ messageId: 'm', toolCallId: 'c', subIndex: 0, title: '#1 a' });
+    s.openSubAgent({ messageId: 'm', toolCallId: 'c', subIndex: 1, title: '#2 b' });
+    let subs = useDockStore.getState().tabs.filter((t) => t.kind === 'subagent');
+    expect(subs.map((t) => t.id)).toEqual([subAgentTabId('m', 0), subAgentTabId('m', 1)]);
+    expect(subs.map((t) => t.id)).toEqual(['m#0', 'm#1']);
+
+    s.closeTab('m#0');
+    subs = useDockStore.getState().tabs.filter((t) => t.kind === 'subagent');
+    expect(subs.map((t) => t.id)).toEqual(['m#1']);
   });
 
   it('resetWorkspaceTabs drops terminals (keeping one fresh idle) and keeps page tabs', () => {

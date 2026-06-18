@@ -4,7 +4,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { spawnPiAgent } from "./runner.js";
-import { normalizeTasks } from "./tasks.js";
+import { normalizeTasks, spawnHasWork } from "./tasks.js";
 import { resolveProfile, profileToModel, profileToEnv, profileLimits, type ProfileInput } from "./capability.js";
 import { discoverAgents, type AgentScope } from "./agents.js";
 import { createWorktree, worktreeDiff } from "./worktree.js";
@@ -102,7 +102,8 @@ export default function (pi: ExtensionAPI) {
       ),
       agentScope: Type.Optional(
         Type.Union([Type.Literal("user"), Type.Literal("project"), Type.Literal("both")], {
-          description: 'Where to discover named agents. Default "user"; "both"/"project" also reads repo .pi/agents.',
+          description:
+            'Where to discover named agents. Default "user"; "both"/"project" also reads repo .pi/agents — an untrusted repo can thereby inject a sub-agent system prompt + tool allowlist, so keep "user" for unfamiliar code.',
         }),
       ),
       chain: Type.Optional(
@@ -219,14 +220,16 @@ export default function (pi: ExtensionAPI) {
       }
 
       const list = normalizeTasks(params);
-      if (!list.length) throw new Error("provide `task` or `tasks`");
+      const hasChain = (params.chain?.length ?? 0) > 0;
+      if (!spawnHasWork(params)) throw new Error("provide `task`, `tasks`, or `chain`");
 
       const profile = resolveProfile(params.profile as ProfileInput | undefined);
       if (profile.isolation === "sandbox") {
         throw new Error("isolation 'sandbox' 尚未支持（规划于 P4）；当前支持 process | worktree");
       }
       const wantWorktree = profile.isolation === "worktree";
-      if (wantWorktree && list.length !== 1) {
+      // chain has its own worktree guard below; only the single/parallel path is gated here.
+      if (wantWorktree && !hasChain && list.length !== 1) {
         throw new Error("worktree 隔离仅支持单任务（不支持并行 tasks）");
       }
       const profileModel = profileToModel(profile, getConfig);
@@ -458,7 +461,12 @@ export default function (pi: ExtensionAPI) {
 
       return {
         content: [{ type: "text", text: body }],
-        details: { count: results.length, failed: results.filter((r) => !r.ok).length },
+        details: {
+          mode: "parallel",
+          count: results.length,
+          failed: results.filter((r) => !r.ok).length,
+          results: results.map((r) => ({ task: r.task, ok: r.ok, output: r.output, error: r.error })),
+        },
       };
     },
   });

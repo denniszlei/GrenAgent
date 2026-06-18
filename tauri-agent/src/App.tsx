@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, memo, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, memo, type ReactNode } from 'react';
 import { ThemeProvider, Flexbox, ConfigProvider } from '@lobehub/ui';
 import { m } from 'motion/react';
 import { ThemeBridge } from './components/ThemeBridge';
 import { ExtensionUiHost } from './features/extensionUi/ExtensionUiHost';
 import { useThemeStore } from './stores/themeStore';
+import { schemeTokens } from './theme/colorSchemes';
 import { ChatView } from './features/chat/ChatView';
+import { MarkdownWarmup } from './features/chat/MarkdownWarmup';
 import { Sidebar } from './features/sessions/Sidebar';
 import { DockPanel } from './features/dock/DockPanel';
 import { DockDndProvider } from './features/dock/DockDndProvider';
@@ -21,8 +23,10 @@ import { ModuleContainer } from './features/workspace/ModuleContainer';
 import { FullscreenLoading } from './components/FullscreenLoading';
 import { onPiEvent, pi, type OpenWorkspaceResult } from './lib/pi';
 import { pickDirectory } from './lib/dialog';
+import { prewarmWorkspace } from './lib/prewarm';
 import { createStartupPerf } from './lib/startupPerf';
 import { pathsEquivalent } from './lib/pathUtils';
+import { STARTUP_SCRATCH_KEY, canReuseScratch } from './lib/startupConversation';
 import {
   getAllSessionsInflight,
   getCachedAllSessions,
@@ -214,16 +218,10 @@ const TerminalColumn = memo(function TerminalColumn() {
   );
 });
 
-function Workspace() {
+const Workspace = memo(function Workspace() {
   const { store, workspace, setWorkspaceReady, appBooted } = useAgentStoreContext();
   const activeSessionPath = useSessionStore((s) => s.activeSessionPath);
-  const messages = store.useStore((s) => s.messages);
   const prevWorkspaceRef = useRef(workspace);
-
-  // 主对话的 spawn_agent 变化时，统一在此处把 subagent tab 与 messages 对齐（单点，避免多坞重复 sync）。
-  useEffect(() => {
-    useDockStore.getState().syncSubAgentTabs(messages);
-  }, [messages]);
 
   // 切换工作区：dispose 旧终端（TerminalBody 卸载会停 shell）、终端重置为 1 个 idle，page 结构保留。
   useEffect(() => {
@@ -242,6 +240,20 @@ function Workspace() {
     // 也不会冲掉后台仍在流式的会话。切走工作区时其 pi 进程从不关闭、活跃会话也未被切换，故切回即正确，
     // 无需任何后端调用（再调 openWorkspace 反而会把进程 restore 到 last_session、顶掉在跑的新会话）。
     if (workspace) {
+      const draftConversationCwd = useSessionStore.getState().draftConversationCwd;
+      if (draftConversationCwd && pathsEquivalent(draftConversationCwd, workspace)) {
+        store.reset();
+        setWorkspaceReady(true);
+        useSessionStore.getState().setLoading(false);
+        // 草稿对话不走 openWorkspace（避免 restore last_session 顶掉在跑的会话），但仍需后台 warm
+        // 把 pi 进程拉起来：否则 getAvailableModels / getState 因「workspace not open」始终报错，
+        // 模型、模式、思考档位选择器永久禁用（新建会话无法选模型）。warm 幂等、不恢复/创建 session。
+        prewarmWorkspace(workspace);
+        void refreshAllSessions();
+        return () => {
+          alive = false;
+        };
+      }
       const target = useSessionStore.getState().activeSessionPath;
       const loaded = store.getLoadedSessionPath();
       const cached =
@@ -255,6 +267,12 @@ function Workspace() {
         return () => {
           alive = false;
         };
+      }
+      // 目标会话命中模块级缓存（该 workspace 的 store 可能新建/曾被 LRU 驱逐）→ 先秒显缓存内容并
+      // 结束骨架屏；下方完整后端流程仍会跑以对齐活跃会话并刷新，刷新内容与缓存一致时 loadMessages
+      // 会跳过重渲染（不闪动）。让「看过的会话」切回即时可见，不必干等 openWorkspace/getMessages。
+      if (target && store.showCachedSession(target)) {
+        setWorkspaceReady(true);
       }
     }
 
@@ -276,8 +294,6 @@ function Workspace() {
         const openResult = await pi.openWorkspace(workspace);
         perf.end('openWorkspace');
         if (!alive) return;
-
-        setWorkspaceReady(true);
 
         perf.start('refreshSessions');
         await refreshSessions(workspace, openResult);
@@ -304,6 +320,10 @@ function Workspace() {
           /* 无消息或加载失败，保持空 */
         }
         perf.end('getMessages');
+        // 消息加载完成后再就绪：内容区骨架屏直接切到最终内容（消息列表或空对话占位），
+        // 避免「openWorkspace 完成即就绪、消息却还没到」时先闪一帧空对话布局（白底 + 居中输入框），
+        // 再跳到消息列表（伴随输入框上下滑动）。
+        if (alive) setWorkspaceReady(true);
       } catch (err) {
         useSessionStore.getState().setError(err instanceof Error ? err.message : String(err));
         if (alive) setWorkspaceReady(true); // 失败也结束加载，显示界面与错误，避免永久 loading
@@ -370,49 +390,72 @@ function Workspace() {
       st.setActiveSession(path);
       st.setWorkspaceSessionPath(cwd, path);
       if (st.activeWorkspace !== cwd) {
-        await switchProject(cwd);
+        // 跨项目切换：立即切 activeWorkspace，内容区即刻进入骨架屏；
+        // openWorkspace / switchSession / getMessages 由切换工作区的 effect 统一完成，
+        // 不在此 await 阻塞——否则骨架屏要等 openWorkspace 返回才出现，表现为「先卡顿一下再骨架屏」。
+        st.setActiveWorkspace(cwd);
       } else {
-        await pi.switchSession(cwd, path);
-        const { messages } = await pi.getMessages(cwd);
-        store.loadMessages(messages, { force: true, sessionPath: path });
+        // 同项目切会话：命中前端缓存先秒显（看过的会话立即出现）；未命中则置骨架屏给即时反馈，
+        // 避免在 switchSession/getMessages 的后端往返期间界面冻在旧内容上「等好几秒才切过去」。
+        const shown = store.showCachedSession(path);
+        if (!shown) setWorkspaceReady(false);
+        try {
+          await pi.switchSession(cwd, path);
+          const { messages } = await pi.getMessages(cwd);
+          // 命中缓存且内容未变时 loadMessages 内部会跳过重渲染（见 agent store），不会闪动。
+          store.loadMessages(messages, { force: true, sessionPath: path });
+        } finally {
+          if (!shown) setWorkspaceReady(true);
+        }
       }
     },
-    [store, switchProject],
+    [store, setWorkspaceReady],
   );
 
   const handleDeleteSession = useCallback(async (cwd: string, path: string) => {
+    const st = useSessionStore.getState();
     // 删除前判定是否为会话区正在显示的会话（pathsEquivalent 兜底分隔符/大小写差异）。
-    const wasActive = pathsEquivalent(useSessionStore.getState().activeSessionPath ?? '', path);
-    await pi.deleteSession(cwd, path);
-    invalidateAllSessionsCache();
-    // 清掉该会话的乐观占位，否则磁盘文件已删、它匹配不到磁盘会话、永不被 prune → 侧栏残留。
-    useSessionStore.getState().removeOptimisticSession(path);
+    const wasActive = pathsEquivalent(st.activeSessionPath ?? '', path);
+    // 乐观更新：先把列表项即时移除 + 隐藏（后台删除完成后由 syncAllSessions 自动撤下隐藏），
+    // 避免「await 后端删除 + 重拉」期间列表项残留、删完才突然消失造成的弹闪与「得好一会才删掉」。
+    st.hideDeletedSession(path);
+    st.removeOptimisticSession(path);
+    st.setAllSessions(st.allSessions.filter((s) => !pathsEquivalent(s.path, path)));
     if (wasActive) {
-      // 删的是会话区正在显示的会话：后端 delete_pi_session 删活跃会话前已 new_session 切到新空会话。
-      // 前端须同步 store.reset() 清空会话区并对齐到该新会话，否则被删会话的消息会残留在会话区。
-      const st = useSessionStore.getState();
+      // 删的是会话区正在显示的会话：先同步清空会话区，避免被删会话消息残留。
       store.reset();
       st.setActiveSession('');
-      try {
-        const state = (await pi.getState(cwd)) as { sessionFile?: string };
-        const newPath = state.sessionFile;
-        if (newPath) {
-          st.setActiveSession(newPath);
-          st.setWorkspaceSessionPath(cwd, newPath);
-          st.upsertOptimisticSession({
-            id: `opt-${newPath}`,
-            path: newPath,
-            cwd,
-            timestamp: new Date().toISOString(),
-            name: null,
-          });
-        }
-      } catch {
-        /* getState 失败则保持空会话区，由下方 refreshSessions 兜底选择会话 */
-      }
     }
-    await refreshSessions(cwd);
-    void refreshAllSessions(true);
+    try {
+      await pi.deleteSession(cwd, path);
+      invalidateAllSessionsCache();
+      if (wasActive) {
+        // 后端 delete_pi_session 删活跃会话前已 new_session 切到新空会话，前端对齐到该新会话。
+        try {
+          const state = (await pi.getState(cwd)) as { sessionFile?: string };
+          const newPath = state.sessionFile;
+          if (newPath) {
+            st.setActiveSession(newPath);
+            st.setWorkspaceSessionPath(cwd, newPath);
+            st.upsertOptimisticSession({
+              id: `opt-${newPath}`,
+              path: newPath,
+              cwd,
+              timestamp: new Date().toISOString(),
+              name: null,
+            });
+          }
+        } catch {
+          /* getState 失败则保持空会话区，由下方 refreshSessions 兜底选择会话 */
+        }
+      }
+      await refreshSessions(cwd);
+      void refreshAllSessions(true);
+    } catch (e) {
+      // 后端删除失败：撤销乐观隐藏，列表项恢复，并提示错误。
+      st.unhideDeletedSession(path);
+      st.setError(e instanceof Error ? e.message : String(e));
+    }
   }, [store]);
 
   const handleSubmitRename = useCallback(async (cwd: string, _path: string, name: string) => {
@@ -441,17 +484,10 @@ function Workspace() {
 
   const handleNewConversation = useCallback(async () => {
     const { cwd } = await pi.createConversation();
-    // createConversation 只建空 works/<uuid> 目录，pi 在 newSession 前不会把 session 落盘到
-    // ~/.pi/agent/sessions；而侧边栏「对话」列表来自 list_all_sessions 扫描已落盘的 session 文件。
-    // 故对齐 handleNewSession：先 openWorkspace 起进程、再 newSession 落盘首个 session，
-    // refreshAllSessions 才能扫到这条新对话（否则列表不刷新）。
-    await pi.openWorkspace(cwd);
     const st = useSessionStore.getState();
     st.setActiveSession('');
-    await pi.newSession(cwd);
-    invalidateAllSessionsCache();
+    st.setDraftConversation(cwd);
     st.setActiveWorkspace(cwd);
-    void refreshAllSessions(true);
   }, []);
 
   const handleOpenProject = useCallback(async () => {
@@ -466,17 +502,34 @@ function Workspace() {
   }, []);
 
   const handleDeleteConversation = useCallback(
-    async (cwd: string) => {
-      await pi.deleteConversation(cwd);
-      invalidateAllSessionsCache();
-      useSessionStore.getState().removeOptimisticByCwd(cwd);
-      if (useSessionStore.getState().activeWorkspace === cwd) {
-        await goToSafeWorkspace();
-      } else {
-        void refreshAllSessions(true);
+    (cwd: string) => {
+      const st = useSessionStore.getState();
+      st.hideDeletedConversation(cwd);
+      st.removeOptimisticByCwd(cwd);
+      st.setAllSessions(st.allSessions.filter((s) => !pathsEquivalent(s.cwd ?? '', cwd)));
+      if (pathsEquivalent(st.activeWorkspace, cwd)) {
+        const next = st.allSessions
+          .filter((s) => s.cwd && !pathsEquivalent(s.cwd, cwd))
+          .sort((a, b) => (b.timestamp ?? '').localeCompare(a.timestamp ?? ''))[0];
+        st.setActiveSession(next?.path ?? '');
+        if (next?.cwd) {
+          st.setActiveWorkspace(next.cwd);
+        } else {
+          void handleNewConversation();
+        }
       }
+      void (async () => {
+        try {
+          await pi.deleteConversation(cwd);
+          invalidateAllSessionsCache();
+          await refreshAllSessions(true);
+        } catch (e) {
+          st.unhideDeletedConversation(cwd);
+          st.setError(e instanceof Error ? e.message : String(e));
+        }
+      })();
     },
-    [goToSafeWorkspace],
+    [handleNewConversation],
   );
 
   const handleRemoveProject = useCallback(
@@ -534,7 +587,7 @@ function Workspace() {
   }, [runningWorkspaces, workspaceSessionPaths, workspace, activeSessionPath]);
 
   return (
-    <Flexbox style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
+    <Flexbox style={{ position: 'fixed', inset: 0, overflow: 'hidden' }}>
       <Titlebar />
       <Flexbox horizontal flex={1} style={{ minHeight: 0 }}>
         <ModuleRail />
@@ -563,37 +616,109 @@ function Workspace() {
       <FullscreenLoading visible={!appBooted} />
     </Flexbox>
   );
-}
+});
 
 export default function App() {
   const appearance = useThemeStore((s) => s.appearance);
   const primaryColor = useThemeStore((s) => s.primaryColor);
   const neutralColor = useThemeStore((s) => s.neutralColor);
+  const colorScheme = useThemeStore((s) => s.colorScheme);
+  const [systemDark, setSystemDark] = useState(
+    () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-color-scheme: dark)').matches,
+  );
+  useEffect(() => {
+    if (appearance !== 'auto' || typeof window === 'undefined') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+    setSystemDark(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [appearance]);
+  const isDark = appearance === 'dark' || (appearance === 'auto' && systemDark);
+  // cssVar 模式：antd 组件样式改为引用 CSS 变量，切主题/方案只换变量值，不再为整棵
+  // 组件树重新序列化样式表（这是切换卡顿的主因）。token 为方案覆盖（含明暗）。
+  const antdTheme = useMemo(() => {
+    const token = schemeTokens(colorScheme, isDark);
+    // hashed:false 配合 cssVar：组件样式只有一份（不按 token 哈希隔离），切主题仅换变量值。
+    // cssVar 用空对象 = 启用 cssVar + 默认配置（等价旧的 `true`，antd v6 类型要求 object 形式）；
+    // 运行时行为完全一致，仍走「切主题只换变量值」的同帧路径，不会退回全量样式重序列化。
+    return { cssVar: {}, hashed: false, ...(token ? { token } : {}) };
+  }, [colorScheme, isDark]);
   const activeWorkspace = useSessionStore((s) => s.activeWorkspace);
+  const worksDir = useSessionStore((s) => s.worksDir);
+
+  // worksDir 决定侧栏「对话 / 项目」归类（works 目录下的会话算「对话」，其余算「项目」）。
+  // getWorksDir 偶发失败时若只在启动试一次并吞掉异常，worksDir 会永久为空 → 所有对话被错分到「项目」。
+  // 自愈：只要 worksDir 为空就持续重试拉取，直到拿到（含热更新后修复当前会话，无需重启）。
+  useEffect(() => {
+    if (worksDir) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tryLoad = () => {
+      pi.getWorksDir()
+        .then((dir) => {
+          if (cancelled) return;
+          if (dir) useSessionStore.getState().setWorksDir(dir);
+          else timer = setTimeout(tryLoad, 800);
+        })
+        .catch(() => {
+          if (!cancelled) timer = setTimeout(tryLoad, 800);
+        });
+    };
+    tryLoad();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [worksDir]);
 
   useEffect(() => {
     void (async () => {
+      let bootWorksDir = '';
       try {
-        const wd = await pi.getWorksDir();
-        useSessionStore.getState().setWorksDir(wd);
+        bootWorksDir = await pi.getWorksDir();
+        useSessionStore.getState().setWorksDir(bootWorksDir);
+      } catch {
+        /* ignore — 上面的自愈 effect 会持续重试补上 worksDir */
+      }
+
+      // 首屏默认空的新对话：不再恢复最近项目的会话。优先复用上次启动留下、至今未使用过的
+      // 空白对话（localStorage 记住其 cwd），它一旦被用过（出现在已落盘会话里）就不再复用，
+      // 从而既保证首屏是干净的新对话，又避免每次启动都新建空 works 目录而堆积。
+      let sessionCwds: Array<string | null> = [];
+      try {
+        sessionCwds = (await pi.listAllSessions()).map((s) => s.cwd);
       } catch {
         /* ignore */
       }
+
+      let remembered = '';
+      try {
+        remembered = localStorage.getItem(STARTUP_SCRATCH_KEY) ?? '';
+      } catch {
+        /* ignore */
+      }
+
       let ws = '';
-      try {
-        const all = await pi.listAllSessions();
-        ws = all[0]?.cwd ?? '';
-      } catch {
-        /* ignore */
-      }
-      if (!ws) {
+      if (canReuseScratch(remembered, bootWorksDir, sessionCwds)) {
+        ws = remembered;
+      } else {
         try {
           ws = (await pi.createConversation()).cwd;
+          try {
+            localStorage.setItem(STARTUP_SCRATCH_KEY, ws);
+          } catch {
+            /* ignore */
+          }
         } catch {
           /* ignore */
         }
       }
-      if (ws) useSessionStore.getState().setActiveWorkspace(ws);
+      if (ws) {
+        useSessionStore.getState().setDraftConversation(ws);
+        useSessionStore.getState().setActiveSession('');
+        useSessionStore.getState().setActiveWorkspace(ws);
+      }
     })();
     return () => {
       // store 由 registry 常驻；卸载时统一取消所有订阅（后端进程由窗口关闭事件 close_all 兜底）。
@@ -602,10 +727,11 @@ export default function App() {
   }, []);
 
   return (
-    <ThemeProvider themeMode={appearance} customTheme={{ primaryColor, neutralColor }}>
+    <ThemeProvider themeMode={appearance} customTheme={{ primaryColor, neutralColor }} theme={antdTheme}>
       <ConfigProvider motion={m}>
         <ThemeBridge />
         <ExtensionUiHost />
+        <MarkdownWarmup />
         <AgentStoreProvider workspace={activeWorkspace}>
           <Workspace />
         </AgentStoreProvider>

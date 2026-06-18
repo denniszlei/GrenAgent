@@ -5,6 +5,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::State;
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::commands::sessions::{canonical_display_path, resolve_workspace_dir};
@@ -39,6 +40,36 @@ fn perf_log(label: &str, elapsed_ms: u128) {
     eprintln!("[PERF-startup] {label}: {elapsed_ms}ms");
 }
 
+fn is_conversation_workspace(cwd: &Path) -> bool {
+    let works = match dirs::home_dir().map(|h| h.join(".pi").join("agent").join("works")) {
+        Some(works) => works,
+        None => return false,
+    };
+    let works = std::fs::canonicalize(&works).unwrap_or(works);
+    let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    let normalize = |path: &Path| {
+        path.to_string_lossy()
+            .trim_start_matches(r"\\?\")
+            .replace('\\', "/")
+            .trim_end_matches('/')
+            .to_ascii_lowercase()
+    };
+    let works = normalize(&works);
+    let cwd = normalize(&cwd);
+    cwd == works || cwd.starts_with(&format!("{works}/"))
+}
+
+fn apply_conversation_tool_policy(
+    mut env: HashMap<String, String>,
+    cwd: &Path,
+) -> HashMap<String, String> {
+    if is_conversation_workspace(cwd) {
+        env.remove("MCP_SERVERS");
+        env.insert("MCP_DISABLED".into(), "1".into());
+    }
+    env
+}
+
 async fn current_session_file(mgr: &PiManager, workspace: &str) -> Option<String> {
     send(mgr, workspace, PiOutbound::GetState { id: None })
         .await
@@ -69,18 +100,28 @@ pub async fn open_workspace(
     let cwd_for_spawn = cwd.to_string_lossy().to_string();
     let app2 = app.clone();
     let ws = workspace.clone();
-    let env = store.settings_env().await;
+    let env = apply_conversation_tool_policy(store.settings_env().await, &cwd);
     store.write_runtime_config().await;
     let runtime_config = store.runtime_path().to_string_lossy().to_string();
     // Code Intelligence 自动 init 开关（在 env 被 move 进 spawn 闭包前读取）。
-    let auto_init_codegraph = env.get("CODE_INTEL").map(|v| v.as_str() != "off").unwrap_or(true)
+    let auto_init_codegraph = env
+        .get("CODE_INTEL")
+        .map(|v| v.as_str() != "off")
+        .unwrap_or(true)
         && env
             .get("CODE_INTEL_AUTO_INIT")
             .map(|v| v.as_str() != "0")
             .unwrap_or(true);
     mgr.get_or_open(&workspace, move || {
         let sink: Arc<dyn EventSink> = Arc::new(TauriSink { app: app2.clone() });
-        spawn_pi_client(&app2, ws.clone(), &cwd_for_spawn, sink, env.clone(), &runtime_config)
+        spawn_pi_client(
+            &app2,
+            ws.clone(),
+            &cwd_for_spawn,
+            sink,
+            env.clone(),
+            &runtime_config,
+        )
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -123,7 +164,10 @@ pub async fn open_workspace(
     );
 
     // Code Intelligence：首次打开未索引项目时后台自动 init（非阻塞，失败仅日志）。
-    if auto_init_codegraph && !cwd.join(".codegraph").is_dir() {
+    // 对话工作区（~/.pi/agent/works/<uuid>）是临时目录，不建代码索引——与
+    // apply_conversation_tool_policy 给对话关闭 MCP 的策略保持一致，避免在临时对话目录里
+    // 残留 .codegraph 索引。
+    if auto_init_codegraph && !is_conversation_workspace(&cwd) && !cwd.join(".codegraph").is_dir() {
         let app_for_init = app.clone();
         let ws_for_init = workspace.clone();
         tauri::async_runtime::spawn(async move {
@@ -147,6 +191,50 @@ pub async fn close_workspace(
     mgr: State<'_, Arc<PiManager>>,
 ) -> Result<(), String> {
     mgr.close(&workspace).await;
+    Ok(())
+}
+
+/// 预热一个工作区：仅 spawn pi 进程并发一次轻量 ping 让它把扩展加载完，
+/// 不恢复会话、不改 touch 顺序。供前端在用户点击前（hover/最近会话）后台预热，
+/// 把冷启动从切换关键路径移走，消除切会话/切项目的卡顿。已在运行则直接返回。
+#[tauri::command]
+pub async fn warm_workspace(
+    workspace: String,
+    app: tauri::AppHandle,
+    mgr: State<'_, Arc<PiManager>>,
+    store: State<'_, AppStateStore>,
+) -> Result<(), String> {
+    if mgr.get(&workspace).await.is_some() {
+        return Ok(());
+    }
+    let t0 = Instant::now();
+    let cwd = resolve_workspace_dir(&workspace)?;
+    let cwd_for_spawn = cwd.to_string_lossy().to_string();
+    let app2 = app.clone();
+    let ws = workspace.clone();
+    let env = apply_conversation_tool_policy(store.settings_env().await, &cwd);
+    store.write_runtime_config().await;
+    let runtime_config = store.runtime_path().to_string_lossy().to_string();
+    let client = mgr
+        .get_or_open(&workspace, move || {
+            let sink: Arc<dyn EventSink> = Arc::new(TauriSink { app: app2.clone() });
+            spawn_pi_client(
+                &app2,
+                ws.clone(),
+                &cwd_for_spawn,
+                sink,
+                env.clone(),
+                &runtime_config,
+            )
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    // 轻量 ping：迫使 pi 完成扩展加载后再就绪（结果忽略）。
+    let _ = client.send(PiOutbound::GetState { id: None }).await;
+    perf_log(
+        &format!("warm_workspace:{workspace}"),
+        t0.elapsed().as_millis(),
+    );
     Ok(())
 }
 
@@ -260,6 +348,28 @@ pub async fn agent_cycle_thinking_level(
         &mgr,
         &workspace,
         PiOutbound::CycleThinkingLevel { id: None },
+    )
+    .await
+}
+
+/// 切换 agent 模式（agent / ask / debug / plan）。底层走 prompt 通道发送 `/mode <mode>`，
+/// 由 sidecar 的 agent-mode 扩展执行命令（限制工具集 + 注入对应 prompt），不调用 LLM；
+/// 切换后新模式经 setStatus 推回前端供选择器回读。
+#[tauri::command]
+pub async fn agent_set_mode(
+    workspace: String,
+    mode: String,
+    mgr: State<'_, Arc<PiManager>>,
+) -> Result<Value, String> {
+    send(
+        &mgr,
+        &workspace,
+        PiOutbound::Prompt {
+            id: None,
+            message: format!("/mode {mode}"),
+            images: None,
+            streaming_behavior: None,
+        },
     )
     .await
 }
@@ -425,4 +535,27 @@ pub async fn set_settings(
     store.replace_settings(settings).await;
     store.write_runtime_config().await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn conversation_workspace_removes_mcp_servers_env() {
+        let home = match dirs::home_dir() {
+            Some(home) => home,
+            None => return,
+        };
+        let works = home.join(".pi").join("agent").join("works");
+        let _ = std::fs::create_dir_all(&works);
+        let cwd = works.join("test-conversation");
+        let mut env = HashMap::new();
+        env.insert("MCP_SERVERS".into(), "[{}]".into());
+
+        let next = apply_conversation_tool_policy(env, &cwd);
+
+        assert!(!next.contains_key("MCP_SERVERS"));
+        assert_eq!(next.get("MCP_DISABLED").map(String::as_str), Some("1"));
+    }
 }

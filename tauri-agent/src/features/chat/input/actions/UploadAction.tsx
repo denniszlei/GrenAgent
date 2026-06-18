@@ -1,28 +1,8 @@
 import { useRef, type ChangeEvent } from 'react';
 import { ActionIcon } from '@lobehub/ui';
 import { ImagePlus } from 'lucide-react';
-import { useChatInput, type ImageAttachment } from '../ChatInputContext';
-
-/** 读图片为附件：data 为纯 base64（pi 要求），url 保留 dataURL 供预览。 */
-function readImage(file: File): Promise<ImageAttachment> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = String(reader.result);
-      const comma = url.indexOf(',');
-      const data = comma >= 0 ? url.slice(comma + 1) : url;
-      resolve({
-        type: 'image',
-        mimeType: file.type || 'image/png',
-        data,
-        name: file.name,
-        url,
-      });
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
+import { useChatInput } from '../ChatInputContext';
+import { fileToImageAttachment } from '../editor/imageAttachment';
 
 export default function UploadAction() {
   const { addAttachments } = useChatInput();
@@ -31,7 +11,7 @@ export default function UploadAction() {
   const onChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (files.length) {
-      addAttachments(await Promise.all(files.map(readImage)));
+      addAttachments(await Promise.all(files.map(fileToImageAttachment)));
     }
     e.target.value = '';
   };

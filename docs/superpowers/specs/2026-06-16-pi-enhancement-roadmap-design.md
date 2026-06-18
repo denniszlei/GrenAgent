@@ -4,6 +4,23 @@
 > 状态：设计已批准，待拆分为各子项目规格
 > 范围：本文是**总览参考设计**，覆盖全部缺失点（A/B/C/D）。每个子项目后续各自走 规格 → 计划 → 实现 周期。
 
+## 0. 拆分进展与核验修正（2026-06-16）
+
+本总览已拆为 6 份子项目规格（均在 `docs/superpowers/specs/2026-06-16-*-design.md`），每份含实地代码核验（带 `文件:行号` 锚点的「代码核对修订」段）：
+
+- A `goal-stop-condition-design.md`、B `session-memory-design.md`、C `compaction-policy-design.md`
+- D.1 `session-search-design.md`、D.2 `diagnostics-design.md`、D.3 `code-search-design.md`
+
+> 运行时基准：扩展实际运行于 npm 包 `@earendil-works/pi-coding-agent@0.79.x`（`extensions/node_modules/`），仓库**无** `pi/` fork。本总览 §3 的若干「需改核心」结论据此被修正，**以各子规格为准**：
+
+1. **C 不必改核心（推翻 §4.C「MVP 走核心改动」）**：运行时暴露 `context` 扩展钩子（`pi.on("context")` 返回 `{messages}` 改写发往 LLM 的 `AgentMessage[]`，即 `transformContext` 注入点）与 `session_before_compact`（返回自定义 `CompactionResult`）。prune / 尾部保留 / 压力分级均可**纯扩展**实现。
+2. **会话文件真实路径（推翻 §4.D.1 的 `.pi/sessions/`）**：实为 `~/.pi/agent/sessions/--<encoded-cwd>--/*.jsonl`（全局按 cwd 分区）；D.1 改用官方 `SessionManager.list/listAll` + `ctx.sessionManager.getSessionDir()` 枚举。
+3. **embedding 复用粒度（细化 §4.D）**：HTTP/端点/配置（`_shared/provider-endpoint`+`runtime-config`）可直接复用，但**向量存取在 LTM/RAG 间重复**；D.3 前置抽 `_shared/embedding.ts` + `_shared/vector-store.ts`。
+4. **B 上下文重建机制（优化 §4.B MVP）**：用 `session_compact` 事件驱动注入（替代「轮询 getEntries 看新 compaction 条目」）；B 的「摘要基底」增强亦为纯扩展（`session_before_compact`），非核心改动。
+5. **D.2 exec/settings**：扩展跑 shell 用 `node:child_process`（现网惯例）或 `pi.exec`；`.pi/settings.json` 不经 `runtime-config`，需直读或 `SettingsManager`。
+
+净结论：原 §2 决策表「实现载体：扩展优先，必要时改核心」在本轮核验后收紧为 **全部子项目（含 C）均可纯扩展落地，零核心改动、零 fork 维护成本**。
+
 ## 1. 背景与目标
 
 Pi（`earendil-works/pi`）采用「极简核心 + 可插拔扩展」哲学：核心仅 7 个工具（read/write/edit/bash/grep/find/ls），能力靠 `extensions/` 钩子补齐。与 MiMo-Code（OpenCode 重型 fork，22 内置工具 + 深度集成的记忆/压缩/Goal/子代理）对比，Pi 在**语义记忆**（`long-term-memory` 的 embedding + LLM 整合）和**子代理进程隔离**（`multi-agent` 的 worktree/profile/registry）上反而领先，真正的缺口集中在长程自主与上下文韧性：

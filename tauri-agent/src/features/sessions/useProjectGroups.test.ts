@@ -40,4 +40,23 @@ describe('buildProjectGroups worksDir filter', () => {
     expect(groups[0].sessions).toHaveLength(0);
     expect(groups[0].isCurrent).toBe(true);
   });
+
+  it('does not bump the current project to the top (stable order on open)', () => {
+    const sessions = [
+      s('/proj/a', '2026-01-02T00:00:00Z'), // 最近活跃
+      s('/proj/b', '2026-01-01T00:00:00Z'), // 较旧
+    ];
+    const groups = buildProjectGroups(sessions, {
+      current: '/proj/b', // 打开较旧的项目
+      pinnedProjects: [],
+      hiddenProjects: [],
+      aliases: {},
+      keyword: '',
+      worksDir: '/home/.pi/agent/works',
+      registeredProjects: [],
+    });
+    // 仍按最近活跃排序：a 在前、b 在后；当前项目 b 不被置顶，避免打开即重排。
+    expect(groups.map((g) => g.cwd)).toEqual(['/proj/a', '/proj/b']);
+    expect(groups[1].isCurrent).toBe(true);
+  });
 });

@@ -28,7 +28,12 @@ fn atomic_write(path: &PathBuf, contents: &str) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let tmp = path.with_extension("json.tmp");
+    // tmp 名带 pid + 纳秒，避免同目录并发写（多窗口/连续保存）撞同一个 .tmp 互相覆盖。
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp = path.with_extension(format!("{}.{}.tmp", std::process::id(), nonce));
     std::fs::write(&tmp, contents).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
@@ -182,7 +187,11 @@ async fn get_text(rb: reqwest::RequestBuilder) -> Result<String, String> {
     let status = resp.status();
     let text = resp.text().await.map_err(|e| e.to_string())?;
     if !status.is_success() {
-        return Err(format!("HTTP {}: {}", status.as_u16(), truncate_body(&text)));
+        return Err(format!(
+            "HTTP {}: {}",
+            status.as_u16(),
+            truncate_body(&text)
+        ));
     }
     Ok(text)
 }
@@ -193,7 +202,10 @@ fn parse_id_list(text: &str) -> Result<Vec<String>, String> {
     serde_json::from_str::<DataModels>(text)
         .map(|p| p.data.into_iter().map(|m| m.id).collect())
         .map_err(|e| {
-            format!("解析响应失败（响应可能不是预期 JSON，请检查 Base URL 路径）: {e}；响应开头: {}", truncate_body(text))
+            format!(
+                "解析响应失败（响应可能不是预期 JSON，请检查 Base URL 路径）: {e}；响应开头: {}",
+                truncate_body(text)
+            )
         })
 }
 
@@ -267,7 +279,13 @@ pub async fn fetch_provider_models(
             let mut last_err = String::from("无可用端点");
             let mut found: Option<Vec<String>> = None;
             for url in &candidates {
-                match get_text(client.get(url).header("authorization", format!("Bearer {key}"))).await {
+                match get_text(
+                    client
+                        .get(url)
+                        .header("authorization", format!("Bearer {key}")),
+                )
+                .await
+                {
                     Ok(text) => match parse_id_list(&text) {
                         Ok(ids) => {
                             found = Some(ids);
@@ -288,9 +306,512 @@ pub async fn fetch_provider_models(
     Ok(models)
 }
 
+#[derive(serde::Deserialize)]
+struct ModelsFile {
+    #[serde(default)]
+    providers: std::collections::HashMap<String, ProviderEntry>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderEntry {
+    #[serde(default)]
+    api: String,
+    #[serde(default)]
+    base_url: String,
+    #[serde(default)]
+    api_key: String,
+    #[serde(default)]
+    headers: std::collections::HashMap<String, String>,
+}
+
+/// 从模型返回文本里抽取 mermaid 代码：优先取首个 ``` 围栏内容（含 ```mermaid 语言标记），
+/// 没有围栏时返回整段 trim 后的文本。
+fn extract_mermaid(text: &str) -> String {
+    let t = text.trim();
+    if let Some(start) = t.find("```") {
+        let after = &t[start + 3..];
+        // 跳过紧随其后的语言标记行（如 `mermaid\n`）。
+        let body_start = after.find('\n').map(|i| i + 1).unwrap_or(0);
+        let body = &after[body_start..];
+        if let Some(end) = body.find("```") {
+            return body[..end].trim().to_string();
+        }
+        return body.trim().to_string();
+    }
+    t.to_string()
+}
+
+/// 按 provider 的 api 类型发一次「非流式」补全请求，返回模型输出的纯文本。
+/// 复用 models.json 里该 provider 的 baseUrl / apiKey / headers，端点与鉴权按 api 区分：
+/// - anthropic-messages: POST {base}/v1/messages，x-api-key + anthropic-version
+/// - google-generative-ai: POST {base}/v1beta/models/{model}:generateContent?key=...
+/// - openai-responses: POST {base}/v1/responses，Authorization: Bearer
+/// - 其它（openai-completions / OpenAI 兼容）: POST {base}/v1/chat/completions，Bearer，stream:false
+async fn call_llm_oneshot(
+    entry: &ProviderEntry,
+    model_id: &str,
+    system: &str,
+    user: &str,
+) -> Result<String, String> {
+    let base = entry.base_url.trim().trim_end_matches('/');
+    if base.is_empty() {
+        return Err("provider baseUrl 为空".into());
+    }
+    let key = entry.api_key.trim();
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let (url, body): (String, serde_json::Value) = match entry.api.as_str() {
+        "anthropic-messages" => {
+            let url = if base.ends_with("/v1") {
+                format!("{base}/messages")
+            } else {
+                format!("{base}/v1/messages")
+            };
+            let body = serde_json::json!({
+                "model": model_id,
+                "max_tokens": 4096,
+                "system": system,
+                "messages": [{ "role": "user", "content": user }],
+            });
+            (url, body)
+        }
+        "google-generative-ai" => {
+            let root = if base.ends_with("/v1beta") || base.ends_with("/v1") {
+                base.to_string()
+            } else {
+                format!("{base}/v1beta")
+            };
+            let url = format!("{root}/models/{model_id}:generateContent");
+            let body = serde_json::json!({
+                "systemInstruction": { "parts": [{ "text": system }] },
+                "contents": [{ "role": "user", "parts": [{ "text": user }] }],
+            });
+            (url, body)
+        }
+        "openai-responses" => {
+            let url = if base.ends_with("/v1") {
+                format!("{base}/responses")
+            } else {
+                format!("{base}/v1/responses")
+            };
+            let body = serde_json::json!({
+                "model": model_id,
+                "input": [
+                    { "role": "system", "content": system },
+                    { "role": "user", "content": user },
+                ],
+            });
+            (url, body)
+        }
+        _ => {
+            let url = if base.ends_with("/v1") {
+                format!("{base}/chat/completions")
+            } else {
+                format!("{base}/v1/chat/completions")
+            };
+            let body = serde_json::json!({
+                "model": model_id,
+                "messages": [
+                    { "role": "system", "content": system },
+                    { "role": "user", "content": user },
+                ],
+                "stream": false,
+            });
+            (url, body)
+        }
+    };
+
+    let mut rb = client
+        .post(&url)
+        .header("content-type", "application/json")
+        .body(serde_json::to_string(&body).map_err(|e| e.to_string())?);
+    rb = match entry.api.as_str() {
+        "anthropic-messages" => rb
+            .header("x-api-key", key)
+            .header("anthropic-version", "2023-06-01"),
+        "google-generative-ai" => rb.query(&[("key", key)]),
+        _ => rb.header("authorization", format!("Bearer {key}")),
+    };
+    // 附加 provider 自定义 headers（如 User-Agent）；放最后，但鉴权头已先设，避免被无意覆盖语义。
+    for (k, v) in &entry.headers {
+        rb = rb.header(k.as_str(), v.as_str());
+    }
+
+    let resp = rb.send().await.map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        return Err(format!(
+            "HTTP {}: {}",
+            status.as_u16(),
+            truncate_body(&text)
+        ));
+    }
+
+    let v: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| format!("解析响应失败: {e}；响应开头: {}", truncate_body(&text)))?;
+
+    let content = match entry.api.as_str() {
+        "anthropic-messages" => v
+            .get("content")
+            .and_then(|c| c.as_array())
+            .and_then(|arr| {
+                arr.iter()
+                    .find_map(|b| b.get("text").and_then(|t| t.as_str()))
+            })
+            .map(|s| s.to_string()),
+        "google-generative-ai" => v
+            .get("candidates")
+            .and_then(|c| c.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|c| c.get("content"))
+            .and_then(|c| c.get("parts"))
+            .and_then(|p| p.as_array())
+            .and_then(|arr| {
+                arr.iter()
+                    .find_map(|p| p.get("text").and_then(|t| t.as_str()))
+            })
+            .map(|s| s.to_string()),
+        "openai-responses" => v
+            .get("output_text")
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                v.get("output").and_then(|o| o.as_array()).map(|items| {
+                    let mut acc = String::new();
+                    for item in items {
+                        if let Some(carr) = item.get("content").and_then(|c| c.as_array()) {
+                            for c in carr {
+                                if let Some(t) = c.get("text").and_then(|t| t.as_str()) {
+                                    acc.push_str(t);
+                                }
+                            }
+                        }
+                    }
+                    acc
+                })
+            }),
+        _ => v
+            .get("choices")
+            .and_then(|c| c.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|c| c.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str())
+            .map(|s| s.to_string()),
+    };
+
+    let content = content.unwrap_or_default();
+    if content.trim().is_empty() {
+        return Err(format!(
+            "模型未返回有效内容；响应开头: {}",
+            truncate_body(&text)
+        ));
+    }
+    Ok(content)
+}
+
+/// Mermaid 渲染失败时的「非流式一次性修复」：取当前会话所选模型，按其 provider 的 api 类型
+/// 发一次非流式补全请求，让模型只返回修正后的 mermaid 代码。整个过程不进入对话历史，结果由
+/// 前端直接替换到失败的图表组件上重渲染。
+#[tauri::command]
+pub async fn fix_mermaid_diagram(
+    workspace: String,
+    code: String,
+    error: String,
+    app: tauri::AppHandle,
+    mgr: State<'_, Arc<PiManager>>,
+) -> Result<String, String> {
+    // 1. 取当前会话选定的模型（provider + id）。
+    let client = mgr
+        .get(&workspace)
+        .await
+        .ok_or_else(|| format!("workspace not open: {workspace}"))?;
+    let state = client
+        .send(PiOutbound::GetState { id: None })
+        .await
+        .map_err(|e| e.to_string())?;
+    if !state.success {
+        return Err(state.error.unwrap_or_else(|| "get_state failed".into()));
+    }
+    let data = state.data.ok_or("当前会话状态为空")?;
+    let model = data.get("model").ok_or("当前会话尚未选定模型")?;
+    let model_id = model
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("无法获取当前模型 id")?;
+    let provider_key = model
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .ok_or("无法获取当前模型的 provider")?;
+
+    // 2. 读 models.json 定位该 provider 的连接配置。
+    let dir = agent_dir(&app)?;
+    let models_json =
+        read_opt(&dir.join("models.json")).ok_or("找不到 models.json，无法定位 provider 配置")?;
+    let parsed: ModelsFile =
+        serde_json::from_str(&models_json).map_err(|e| format!("models.json 解析失败: {e}"))?;
+    let entry = parsed
+        .providers
+        .get(provider_key)
+        .ok_or_else(|| format!("models.json 中找不到 provider: {provider_key}"))?;
+    if entry.api_key.trim().is_empty() {
+        return Err(format!("provider {provider_key} 未配置 apiKey"));
+    }
+
+    // 3. 发非流式请求并抽取 mermaid 代码。
+    let system = "You are a Mermaid diagram syntax repair tool. The user provides a Mermaid diagram source that failed to render along with the error message. Reply with ONLY the corrected Mermaid source wrapped in a single ```mermaid fenced code block. Fix only the syntax errors and preserve the original intent. Do not include any explanation.";
+    let user = format!(
+        "The Mermaid diagram failed to render.\n\nError:\n{error}\n\nOriginal Mermaid source:\n```mermaid\n{code}\n```\n\nReturn the corrected Mermaid source."
+    );
+    let raw = call_llm_oneshot(entry, model_id, system, &user).await?;
+    let fixed = extract_mermaid(&raw);
+    if fixed.trim().is_empty() {
+        return Err("模型未返回可用的 mermaid 代码".into());
+    }
+    Ok(fixed)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnoseResult {
+    pub ok: bool,
+    pub error: Option<String>,
+    pub content: String,
+    pub ttft_ms: u64,
+    pub total_ms: u64,
+    pub prompt_tokens: Option<u64>,
+    pub completion_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
+    pub tokens_per_sec: Option<f64>,
+}
+
+fn provider_entry(app: &tauri::AppHandle, provider_id: &str) -> Result<ProviderEntry, String> {
+    let dir = agent_dir(app)?;
+    let models_json =
+        read_opt(&dir.join("models.json")).ok_or("找不到 models.json，无法定位 provider 配置")?;
+    let parsed: ModelsFile =
+        serde_json::from_str(&models_json).map_err(|e| format!("models.json 解析失败: {e}"))?;
+    let entry = parsed
+        .providers
+        .get(provider_id)
+        .ok_or_else(|| format!("models.json 中找不到 provider: {provider_id}"))?;
+    if entry.api_key.trim().is_empty() {
+        return Err(format!("provider {provider_id} 未配置 apiKey"));
+    }
+    Ok(ProviderEntry {
+        api: entry.api.clone(),
+        base_url: entry.base_url.clone(),
+        api_key: entry.api_key.clone(),
+        headers: entry.headers.clone(),
+    })
+}
+
+/// 流式诊断 OpenAI 兼容 chat/completions：测首字(TTFT)、总耗时、token 用量与速率。
+async fn diagnose_openai_stream(
+    entry: &ProviderEntry,
+    model_id: &str,
+    prompt: &str,
+) -> Result<DiagnoseResult, String> {
+    use futures_util::StreamExt;
+    use std::time::Instant;
+
+    let base = entry.base_url.trim().trim_end_matches('/');
+    if base.is_empty() {
+        return Err("provider baseUrl 为空".into());
+    }
+    let key = entry.api_key.trim();
+    let url = if base.ends_with("/v1") {
+        format!("{base}/chat/completions")
+    } else {
+        format!("{base}/v1/chat/completions")
+    };
+    let body = serde_json::json!({
+        "model": model_id,
+        "messages": [{ "role": "user", "content": prompt }],
+        "stream": true,
+        "stream_options": { "include_usage": true },
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut rb = client
+        .post(&url)
+        .header("content-type", "application/json")
+        .header("authorization", format!("Bearer {key}"))
+        .body(serde_json::to_string(&body).map_err(|e| e.to_string())?);
+    for (k, v) in &entry.headers {
+        rb = rb.header(k.as_str(), v.as_str());
+    }
+
+    let start = Instant::now();
+    let resp = rb.send().await.map_err(|e| e.to_string())?;
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "HTTP {}: {}",
+            status.as_u16(),
+            truncate_body(&text)
+        ));
+    }
+
+    let mut ttft_ms = 0u64;
+    let mut content = String::new();
+    let mut prompt_tokens = None;
+    let mut completion_tokens = None;
+    let mut total_tokens = None;
+    let mut got_first = false;
+    let stream = resp.bytes_stream();
+    tokio::pin!(stream);
+    let mut buf = String::new();
+
+    while let Some(chunk) = stream.next().await {
+        let bytes = chunk.map_err(|e| e.to_string())?;
+        buf.push_str(&String::from_utf8_lossy(&bytes));
+        while let Some(pos) = buf.find('\n') {
+            let line = buf[..pos].trim().to_string();
+            buf = buf[pos + 1..].to_string();
+            if !line.starts_with("data:") {
+                continue;
+            }
+            let data = line.trim_start_matches("data:").trim();
+            if data.is_empty() || data == "[DONE]" {
+                continue;
+            }
+            let v: serde_json::Value = match serde_json::from_str(data) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if let Some(u) = v.get("usage") {
+                prompt_tokens = u.get("prompt_tokens").and_then(|x| x.as_u64());
+                completion_tokens = u.get("completion_tokens").and_then(|x| x.as_u64());
+                total_tokens = u.get("total_tokens").and_then(|x| x.as_u64());
+            }
+            if let Some(delta) = v
+                .get("choices")
+                .and_then(|c| c.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|c| c.get("delta"))
+                .and_then(|d| d.get("content"))
+                .and_then(|c| c.as_str())
+            {
+                if !delta.is_empty() {
+                    if !got_first {
+                        got_first = true;
+                        ttft_ms = start.elapsed().as_millis() as u64;
+                    }
+                    content.push_str(delta);
+                }
+            }
+        }
+    }
+
+    let total_ms = start.elapsed().as_millis() as u64;
+    if !got_first {
+        ttft_ms = total_ms;
+    }
+    let tokens_per_sec = completion_tokens.and_then(|c| {
+        if total_ms == 0 {
+            return None;
+        }
+        Some(c as f64 / (total_ms as f64 / 1000.0))
+    });
+
+    if content.trim().is_empty() {
+        return Err("模型未返回有效内容".into());
+    }
+
+    Ok(DiagnoseResult {
+        ok: true,
+        error: None,
+        content,
+        ttft_ms,
+        total_ms,
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        tokens_per_sec,
+    })
+}
+
+/// 供应商模型测活：发一条用户消息，返回连通性、首字耗时、总耗时、token 与速率。
+#[tauri::command]
+pub async fn diagnose_provider_model(
+    provider_id: String,
+    model_id: String,
+    prompt: String,
+    app: tauri::AppHandle,
+) -> Result<DiagnoseResult, String> {
+    use std::time::Instant;
+
+    let entry = provider_entry(&app, &provider_id)?;
+    let user = if prompt.trim().is_empty() {
+        "Who are you?".to_string()
+    } else {
+        prompt
+    };
+
+    if entry.api.as_str() == "openai-completions" || entry.api.is_empty() {
+        return diagnose_openai_stream(&entry, &model_id, &user).await;
+    }
+
+    // 其它 API 类型：非流式一次性请求，TTFT 近似为总耗时。
+    let start = Instant::now();
+    match call_llm_oneshot(&entry, &model_id, "", &user).await {
+        Ok(content) => {
+            let total_ms = start.elapsed().as_millis() as u64;
+            Ok(DiagnoseResult {
+                ok: true,
+                error: None,
+                content,
+                ttft_ms: total_ms,
+                total_ms,
+                prompt_tokens: None,
+                completion_tokens: None,
+                total_tokens: None,
+                tokens_per_sec: None,
+            })
+        }
+        Err(e) => Ok(DiagnoseResult {
+            ok: false,
+            error: Some(e),
+            content: String::new(),
+            ttft_ms: 0,
+            total_ms: start.elapsed().as_millis() as u64,
+            prompt_tokens: None,
+            completion_tokens: None,
+            total_tokens: None,
+            tokens_per_sec: None,
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extract_mermaid_from_fenced_block() {
+        let out = extract_mermaid("好的，这是修正版：\n```mermaid\ngantt\n  title X\n```\n完成");
+        assert_eq!(out, "gantt\n  title X");
+    }
+
+    #[test]
+    fn extract_mermaid_plain_passthrough() {
+        assert_eq!(
+            extract_mermaid("  flowchart TD\n  A-->B  "),
+            "flowchart TD\n  A-->B"
+        );
+    }
 
     #[test]
     fn atomic_write_then_read_roundtrip() {

@@ -16,3 +16,9 @@ export function mergeAllSessions(allSessions: SessionInfo[], optimistic: Session
 export function pruneOptimisticSessions(allSessions: SessionInfo[], optimistic: SessionInfo[]): SessionInfo[] {
   return optimistic.filter((o) => !allSessions.some((r) => pathsEquivalent(r.path, o.path)));
 }
+
+/** 过滤掉已乐观删除（等待后台清理完成）的会话 path，供侧栏列表即时移除。 */
+export function filterDeletedSessions(sessions: SessionInfo[], deletedPaths: string[]): SessionInfo[] {
+  if (deletedPaths.length === 0) return sessions;
+  return sessions.filter((s) => !deletedPaths.some((p) => pathsEquivalent(p, s.path)));
+}

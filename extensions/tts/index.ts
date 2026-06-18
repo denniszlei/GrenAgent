@@ -17,14 +17,23 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({
       text: Type.String({ description: "Text to speak" }),
       voice: Type.Optional(Type.String({ description: "Voice name (default from TTS_VOICE, e.g. alloy/echo/nova)" })),
+      instruct: Type.Optional(
+        Type.String({
+          description:
+            "Natural-language delivery direction — tone, emotion, scene, pace, character. " +
+            "E.g. 'excited and upbeat', 'calm narrator in a quiet room', 'young male tone'. " +
+            "Maps to OpenAI gpt-4o-mini-tts `instructions`; for MiMo voice-design models it designs the voice.",
+        }),
+      ),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const text = (params.text ?? "").trim();
       if (!text) throw new Error("text must be non-empty");
+      const instruct = params.instruct?.trim() || undefined;
 
       const config = await resolveTtsConfig(ctx.modelRegistry);
       const cfg = params.voice ? { ...config, voice: params.voice } : config;
-      const bytes = await synthesizeSpeech(text, cfg, signal ?? undefined);
+      const bytes = await synthesizeSpeech(text, cfg, signal ?? undefined, instruct);
 
       const dir = join(ctx.cwd, ".pi", "audio");
       mkdirSync(dir, { recursive: true });
@@ -33,7 +42,14 @@ export default function (pi: ExtensionAPI) {
 
       return {
         content: [{ type: "text", text: `Synthesized speech (${bytes.length} bytes) saved to ${path}` }],
-        details: { path, bytes: bytes.length, voice: cfg.voice, model: config.model, format: config.format },
+        details: {
+          path,
+          bytes: bytes.length,
+          voice: cfg.voice,
+          model: config.model,
+          format: config.format,
+          ...(instruct ? { instruct } : {}),
+        },
       };
     },
   });

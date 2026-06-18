@@ -71,24 +71,66 @@ describe('providerConfigAdapter', () => {
     expect(back?.headers).toMatchObject({ 'X-Foo': 'bar', 'User-Agent': 'pi-agent/1.0' });
   });
 
-  it('maps each API type to its standard reasoning level map', () => {
-    const openai = { minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: null };
+  it('maps each API type to its native reasoning ladder', () => {
+    const openai = { minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh' };
     expect(defaultThinkingLevelMap('openai-completions')).toEqual(openai);
     expect(defaultThinkingLevelMap('openai-responses')).toEqual(openai);
-    expect(defaultThinkingLevelMap('anthropic-messages')).toEqual({ minimal: null, low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh' });
     expect(defaultThinkingLevelMap('google-generative-ai')).toEqual({ minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: null });
     expect(defaultThinkingLevelMap('unknown')).toBeUndefined();
   });
 
-  it('round-trips a custom reasoning model with its thinking level map', () => {
+  it('caps anthropic top effort per model: opus-4-6 keeps max, others fall back to xhigh', () => {
+    // 仅 opus-4-6 系支持原生 "max"。
+    expect(defaultThinkingLevelMap('anthropic-messages', 'claude-opus-4-6')).toEqual({ minimal: 'low', low: 'medium', medium: 'high', high: 'xhigh', xhigh: 'max' });
+    // 其余（4-7/4-8/fable-5/sonnet-4-6）最高到 xhigh：pi-xhigh 隐藏(null)，顶档落在 pi-high→原生 xhigh。
+    expect(defaultThinkingLevelMap('anthropic-messages', 'claude-opus-4-8')).toEqual({ minimal: 'low', low: 'medium', medium: 'high', high: 'xhigh', xhigh: null });
+    expect(defaultThinkingLevelMap('anthropic-messages', 'claude-fable-5')).toEqual({ minimal: 'low', low: 'medium', medium: 'high', high: 'xhigh', xhigh: null });
+    // 缺省 modelId 时按「不支持 max」封顶到 xhigh。
+    expect(defaultThinkingLevelMap('anthropic-messages')).toEqual({ minimal: 'low', low: 'medium', medium: 'high', high: 'xhigh', xhigh: null });
+  });
+
+  it('round-trips a custom anthropic reasoning model: per-model map + adaptive thinking on by default', () => {
     const { modelsJson, authJson } = serializeState([
       {
         id: 'p', name: 'P', builtIn: false, api: 'anthropic-messages',
-        models: [{ id: 'm', reasoning: true, thinkingLevelMap: defaultThinkingLevelMap('anthropic-messages') }],
+        models: [
+          { id: 'claude-opus-4-6', reasoning: true },
+          { id: 'claude-opus-4-8', reasoning: true },
+        ],
       },
     ]);
+    // anthropic 推理模型默认写入 compat.forceAdaptiveThinking=true（pi 才会发送 effort/推理强度）。
+    const raw = JSON.parse(modelsJson).providers.p.models;
+    expect(raw[0]).toMatchObject({ id: 'claude-opus-4-6', compat: { forceAdaptiveThinking: true } });
+    expect(raw[0].thinkingLevelMap.xhigh).toBe('max');
+    expect(raw[1].thinkingLevelMap.xhigh).toBeNull();
+
     const back = loadState(modelsJson, authJson, presets).find((x) => x.id === 'p');
-    expect(back?.models[0]).toMatchObject({ id: 'm', reasoning: true });
-    expect(back?.models[0].thinkingLevelMap).toEqual({ minimal: null, low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh' });
+    expect(back?.models[0]).toMatchObject({ id: 'claude-opus-4-6', reasoning: true, forceAdaptiveThinking: true });
+    expect(back?.models[1]).toMatchObject({ id: 'claude-opus-4-8', reasoning: true, forceAdaptiveThinking: true });
+  });
+
+  it('persists adaptive-thinking turned off (budget thinking, no effort) for older anthropic models', () => {
+    const { modelsJson, authJson } = serializeState([
+      {
+        id: 'p', name: 'P', builtIn: false, api: 'anthropic-messages',
+        models: [{ id: 'claude-3-7-sonnet', reasoning: true, forceAdaptiveThinking: false }],
+      },
+    ]);
+    expect(JSON.parse(modelsJson).providers.p.models[0].compat).toEqual({ forceAdaptiveThinking: false });
+    const back = loadState(modelsJson, authJson, presets).find((x) => x.id === 'p');
+    expect(back?.models[0].forceAdaptiveThinking).toBe(false);
+  });
+
+  it('does not write compat/forceAdaptiveThinking for non-anthropic reasoning models', () => {
+    const { modelsJson, authJson } = serializeState([
+      {
+        id: 'p', name: 'P', builtIn: false, api: 'openai-completions',
+        models: [{ id: 'gpt-x', reasoning: true }],
+      },
+    ]);
+    expect(JSON.parse(modelsJson).providers.p.models[0].compat).toBeUndefined();
+    const back = loadState(modelsJson, authJson, presets).find((x) => x.id === 'p');
+    expect(back?.models[0].forceAdaptiveThinking).toBeUndefined();
   });
 });

@@ -6,7 +6,6 @@ import { useModuleStore } from '../../stores/moduleStore';
 vi.mock('../knowledge/KnowledgePanel', () => ({ KnowledgePanel: () => <div>KB_PANEL</div> }));
 vi.mock('../memory/MemoryPanel', () => ({ MemoryPanel: () => <div>MEM_PANEL</div> }));
 vi.mock('../review/ReviewPanel', () => ({ ReviewPanel: () => <div>RV_PANEL</div> }));
-vi.mock('../create/CreatePanel', () => ({ CreatePanel: () => <div>CR_PANEL</div> }));
 vi.mock('../settings/SettingsPanel', () => ({ SettingsPanel: () => <div>SET_PANEL</div> }));
 vi.mock('../connections/ConnectionsPanel', () => ({ ConnectionsPanel: () => <div>CONN_PANEL</div> }));
 
@@ -28,7 +27,6 @@ describe('ModuleContainer', () => {
     ['knowledge', 'KB_PANEL'],
     ['memory', 'MEM_PANEL'],
     ['review', 'RV_PANEL'],
-    ['create', 'CR_PANEL'],
     ['settings', 'SET_PANEL'],
     ['connections', 'CONN_PANEL'],
   ];

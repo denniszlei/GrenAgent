@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { Input } from 'antd';
+import { Dropdown, Input } from 'antd';
 import { Icon } from '@lobehub/ui';
 import { createStaticStyles, cssVar, cx } from 'antd-style';
 import { Hand, LoaderCircle } from 'lucide-react';
@@ -125,32 +125,30 @@ export const SessionItem = memo(function SessionItem(props: SessionItemProps) {
     );
   }
 
+  const menuItems = buildSessionMenuItems({
+    pinned,
+    onPinToggle,
+    onRename: onRequestRename,
+    onDelete,
+  });
+
   return (
-    <div
-      className={cx('pi-session-row', styles.row, active && styles.active)}
-      onClick={onClick}
-      onMouseEnter={() => {
-        if (!hovered) setHovered(true);
-      }}
-    >
-      <span className={styles.title}>{title}</span>
-      {running && (
-        <span data-testid="session-running" className={styles.spin}>
-          <Icon icon={waiting ? Hand : LoaderCircle} size="small" />
-        </span>
-      )}
-      <span className={styles.acts}>
-        {hovered && (
-          <RowActions
-            menuItems={buildSessionMenuItems({
-              pinned,
-              onPinToggle,
-              onRename: onRequestRename,
-              onDelete,
-            })}
-          />
+    <Dropdown menu={{ items: menuItems }} trigger={['contextMenu']}>
+      <div
+        className={cx('pi-session-row', styles.row, active && styles.active)}
+        onClick={onClick}
+        onMouseEnter={() => {
+          if (!hovered) setHovered(true);
+        }}
+      >
+        <span className={styles.title}>{title}</span>
+        {running && (
+          <span data-testid="session-running" className={styles.spin}>
+            <Icon icon={waiting ? Hand : LoaderCircle} size="small" />
+          </span>
         )}
-      </span>
-    </div>
+        <span className={styles.acts}>{hovered && <RowActions menuItems={menuItems} />}</span>
+      </div>
+    </Dropdown>
   );
 });

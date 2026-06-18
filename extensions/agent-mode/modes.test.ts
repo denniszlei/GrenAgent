@@ -1,0 +1,152 @@
+import { describe, expect, it } from "vitest";
+import {
+  activeToolsFor,
+  type AgentMode,
+  gateToolCall,
+  isAgentMode,
+  modeBadge,
+  modeLabel,
+  parseModeArg,
+  toolWhitelist,
+} from "./modes.js";
+
+describe("isAgentMode / parseModeArg", () => {
+  it("recognizes the four valid modes", () => {
+    for (const m of ["agent", "ask", "debug", "plan"]) {
+      expect(isAgentMode(m)).toBe(true);
+    }
+  });
+  it("rejects unknown values", () => {
+    expect(isAgentMode("build")).toBe(false);
+    expect(isAgentMode("")).toBe(false);
+    expect(isAgentMode(undefined)).toBe(false);
+  });
+  it("parses mode args case-insensitively and trims", () => {
+    expect(parseModeArg("  ASK ")).toBe("ask");
+    expect(parseModeArg("Debug")).toBe("debug");
+    expect(parseModeArg("")).toBeUndefined();
+    expect(parseModeArg("nope")).toBeUndefined();
+  });
+});
+
+describe("toolWhitelist / activeToolsFor", () => {
+  it("restricts ask and plan, leaves agent/debug unrestricted", () => {
+    expect(toolWhitelist("ask")).toBeDefined();
+    expect(toolWhitelist("plan")).toBeDefined();
+    expect(toolWhitelist("agent")).toBeUndefined();
+    expect(toolWhitelist("debug")).toBeUndefined();
+  });
+
+  it("intersects the whitelist with the available tools for ask", () => {
+    const all = ["read", "write", "edit", "bash", "grep", "mcp__server__do"];
+    const active = activeToolsFor("ask", all);
+    expect(active).toContain("read");
+    expect(active).toContain("grep");
+    expect(active).not.toContain("write");
+    expect(active).not.toContain("edit");
+    expect(active).not.toContain("bash");
+    expect(active).not.toContain("mcp__server__do");
+  });
+
+  it("keeps bash for plan but never write/edit", () => {
+    const all = ["read", "write", "edit", "bash", "grep"];
+    const active = activeToolsFor("plan", all);
+    expect(active).toContain("bash");
+    expect(active).toContain("read");
+    expect(active).not.toContain("write");
+    expect(active).not.toContain("edit");
+  });
+
+  it("returns undefined (full tools) for agent and debug", () => {
+    const all = ["read", "write", "edit", "bash"];
+    expect(activeToolsFor("agent", all)).toBeUndefined();
+    expect(activeToolsFor("debug", all)).toBeUndefined();
+  });
+
+  it("falls back to the whitelist when intersection is empty", () => {
+    const active = activeToolsFor("ask", ["some-unrelated-tool"]);
+    expect(active).toEqual([...(toolWhitelist("ask") ?? [])]);
+  });
+});
+
+describe("gateToolCall", () => {
+  it("ask blocks writes, exec, subagents and MCP", () => {
+    for (const t of [
+      "write",
+      "edit",
+      "bash",
+      "kb_add",
+      "memory_save",
+      "memory_update",
+      "memory_delete",
+      "review_note",
+      "todo",
+      "generate_image",
+      "speak",
+      "spawn_agent",
+      "explore_context",
+      "diagnostics",
+      "mcp__server__do",
+    ]) {
+      expect(gateToolCall("ask", t, {})?.block).toBe(true);
+    }
+  });
+  it("ask allows read-only retrieval and web lookup", () => {
+    for (const t of [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "fetch_url",
+      "web_search",
+      "search",
+      "fetch_web_content",
+      "code_search",
+      "kb_search",
+      "memory_recall",
+      "history_search",
+      "git_diff",
+    ]) {
+      expect(gateToolCall("ask", t, {})).toBeUndefined();
+    }
+  });
+
+  it("plan blocks write/edit and mutating bash, allows read-only bash", () => {
+    expect(gateToolCall("plan", "write", { path: "a" })?.block).toBe(true);
+    expect(gateToolCall("plan", "edit", { path: "a" })?.block).toBe(true);
+    expect(gateToolCall("plan", "bash", { command: "rm -rf x" })?.block).toBe(true);
+    expect(gateToolCall("plan", "bash", { command: "git status" })).toBeUndefined();
+    expect(gateToolCall("plan", "read", { path: "a" })).toBeUndefined();
+  });
+
+  it("plan blocks new execution tools (py_run/hl_edit/dap_*) but allows read-only ones", () => {
+    expect(gateToolCall("plan", "py_run", { code: "x" })?.block).toBe(true);
+    expect(gateToolCall("plan", "hl_edit", { patch: "x" })?.block).toBe(true);
+    expect(gateToolCall("plan", "dap_launch", { program: "x" })?.block).toBe(true);
+    expect(gateToolCall("plan", "hl_read", { path: "a" })).toBeUndefined();
+    expect(gateToolCall("plan", "lsp_definition", { path: "a" })).toBeUndefined();
+  });
+
+  it("agent and debug never block", () => {
+    for (const mode of ["agent", "debug"] as AgentMode[]) {
+      expect(gateToolCall(mode, "write", { path: "a" })).toBeUndefined();
+      expect(gateToolCall(mode, "bash", { command: "rm -rf x" })).toBeUndefined();
+      expect(gateToolCall(mode, "mcp__server__do", {})).toBeUndefined();
+    }
+  });
+});
+
+describe("modeBadge / modeLabel", () => {
+  it("hides the badge for the default agent mode only", () => {
+    expect(modeBadge("agent")).toBeUndefined();
+    expect(modeBadge("ask")).toBe("Ask");
+    expect(modeBadge("debug")).toBe("Debug");
+    expect(modeBadge("plan")).toBe("Plan");
+  });
+  it("provides a human label for every mode", () => {
+    expect(modeLabel("agent")).toBeTruthy();
+    expect(modeLabel("ask")).toBeTruthy();
+    expect(modeLabel("debug")).toBeTruthy();
+    expect(modeLabel("plan")).toBeTruthy();
+  });
+});

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Pagination } from 'antd';
 import { Icon } from '@lobehub/ui';
 import { AccuracyBarChart, BarChart, DonutChart } from '@lobehub/charts';
 import { RefreshCw } from 'lucide-react';
@@ -10,6 +11,7 @@ import { useSessionStore } from '../../store';
 import { useModuleStore } from '../../stores/moduleStore';
 import { isUnder } from '../../lib/pathUtils';
 import { buildConversations, friendlyTime } from '../sessions/useConversations';
+import { useProviderList } from '../settings/providerListCache';
 
 function formatCost(n: number): string {
   if (!n) return '—';
@@ -23,6 +25,9 @@ function basename(p: string): string {
 }
 
 const COLORS = ['#5b8ff9', '#61ddaa', '#f6bd16', '#7262fd', '#78d3f8', '#f08bb4', '#9661bc', '#ff9d4d'];
+
+/** 模型调用明细每页条数。 */
+const CALL_PAGE_SIZE = 20;
 
 /** "2026-06-15" → "6/15"；解析失败时原样返回。 */
 function shortDate(d: string): string {
@@ -255,6 +260,7 @@ export function UsagePanel() {
   const [report, setReport] = useState<UsageReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [callPage, setCallPage] = useState(1);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -290,6 +296,10 @@ export function UsagePanel() {
     return m;
   }, [allSessions, worksDir]);
 
+  // 调用明细里的 provider 是 id，显示成供应商显示名（取不到回落 id）。
+  const providerList = useProviderList();
+  const providerNameOf = (id: string) => providerList.find((p) => p.id === id)?.name ?? id;
+
   if (loading && !report) return <div className={styles.root}><div className={styles.state}>加载中…</div></div>;
   if (error) return <div className={styles.root}><div className={styles.state}>加载失败:{error}</div></div>;
   if (!report) return <div className={styles.root}><div className={styles.state}>暂无数据</div></div>;
@@ -300,6 +310,10 @@ export function UsagePanel() {
   const modelTotal = Math.max(1, t.totalTokens);
   // calls 是后端新增字段；App 后端未重建时可能为 undefined，兜底成空数组避免崩。
   const callRows = report.calls ?? [];
+  const callPages = Math.max(1, Math.ceil(callRows.length / CALL_PAGE_SIZE));
+  // 刷新后数据变少时夹住页码，避免停在空页。
+  const curCallPage = Math.min(callPage, callPages);
+  const pagedCalls = callRows.slice((curCallPage - 1) * CALL_PAGE_SIZE, curCallPage * CALL_PAGE_SIZE);
   const projectData = report.byProject.slice(0, 8).map((p) => {
     const casual = !!worksDir && isUnder(p.cwd, worksDir);
     const name = casual
@@ -421,6 +435,18 @@ export function UsagePanel() {
               category="value"
               colorScheme="uniform"
               colors={['#5b8ff9']}
+              customTooltip={(props) => {
+                const row = props.payload?.[0];
+                if (!props.active || !row) return null;
+                const name = String(props.label ?? (row.payload as { name?: string })?.name ?? '');
+                return (
+                  <div className={styles.tip}>
+                    <span className={styles.tipDot} style={{ background: row.color || '#5b8ff9' }} />
+                    <span className={styles.tipName}>{name}</span>
+                    <span className={styles.tipVal}>{formatTokens(Number(row.value ?? 0))}</span>
+                  </div>
+                );
+              }}
               data={[...projectData].sort((a, b) => b.value - a.value)}
               height={Math.max(180, projectData.length * 44)}
               index="name"
@@ -478,6 +504,7 @@ export function UsagePanel() {
             <thead>
               <tr>
                 <th className={cx(styles.th, styles.thSticky)}>时间</th>
+                <th className={cx(styles.th, styles.thSticky)}>供应商</th>
                 <th className={cx(styles.th, styles.thSticky)}>模型</th>
                 <th className={cx(styles.thRight, styles.thSticky)}>输入</th>
                 <th className={cx(styles.thRight, styles.thSticky)}>输出</th>
@@ -488,10 +515,11 @@ export function UsagePanel() {
               </tr>
             </thead>
             <tbody>
-              {callRows.map((c, i) => (
-                <tr key={`${c.timestamp ?? 'na'}-${i}`}>
+              {pagedCalls.map((c, i) => (
+                <tr key={`${c.timestamp ?? 'na'}-${(curCallPage - 1) * CALL_PAGE_SIZE + i}`}>
                   <td className={styles.td}>{c.timestamp ? new Date(c.timestamp).toLocaleString() : '—'}</td>
-                  <td className={styles.td} title={c.provider ? `${c.provider} / ${c.model}` : c.model}>{c.model}</td>
+                  <td className={styles.td} title={providerNameOf(c.provider)}>{c.provider ? providerNameOf(c.provider) : '—'}</td>
+                  <td className={styles.td} title={c.model}>{c.model}</td>
                   <td className={styles.tdRight}>{formatTokens(c.input)}</td>
                   <td className={styles.tdRight}>{formatTokens(c.output)}</td>
                   <td className={styles.tdRight}>{formatTokens(c.cacheRead)}</td>
@@ -502,12 +530,24 @@ export function UsagePanel() {
               ))}
               {callRows.length === 0 && (
                 <tr>
-                  <td className={styles.td} colSpan={8}>暂无调用</td>
+                  <td className={styles.td} colSpan={9}>暂无调用</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        {callRows.length > CALL_PAGE_SIZE && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+            <Pagination
+              size="small"
+              current={curCallPage}
+              pageSize={CALL_PAGE_SIZE}
+              total={callRows.length}
+              showSizeChanger={false}
+              onChange={setCallPage}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

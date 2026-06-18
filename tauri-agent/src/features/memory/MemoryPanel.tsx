@@ -1,5 +1,6 @@
-import { ActionIcon, Flexbox } from '@lobehub/ui';
-import { ArrowUp, Plus, Trash2 } from 'lucide-react';
+import { ActionIcon, Button, Flexbox, Input, Modal, TextArea } from '@lobehub/ui';
+import { Popconfirm } from 'antd';
+import { ArrowUp, PencilLine, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAgentStoreContext } from '../../stores/AgentStoreContext';
 import { pi, type MemItem, type MemStats } from '../../lib/pi';
@@ -33,6 +34,10 @@ export function MemoryPanel() {
   const [view, setView] = useState<'memories' | 'history'>('memories');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editor, setEditor] = useState<{ mode: 'add' | 'edit'; id?: string } | null>(null);
+  const [draftText, setDraftText] = useState('');
+  const [draftCat, setDraftCat] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const reload = useCallback(() => {
     setError(null);
@@ -73,12 +78,11 @@ export function MemoryPanel() {
     reload();
   }, [workspace, selected, reload]);
 
-  const onAdd = useCallback(async () => {
-    const text = window.prompt('输入要记住的内容：');
-    if (!text?.trim()) return;
-    await pi.runCommand(workspace, `/memory add ${text.trim()}`);
-    reload();
-  }, [workspace, reload]);
+  const onAdd = useCallback(() => {
+    setDraftText('');
+    setDraftCat('');
+    setEditor({ mode: 'add' });
+  }, []);
 
   const onPromote = useCallback(async () => {
     if (!selected || selected.scope !== 'project') return;
@@ -86,6 +90,36 @@ export function MemoryPanel() {
     setSelectedKey(null);
     reload();
   }, [workspace, selected, reload]);
+
+  const onEdit = useCallback(() => {
+    if (!selected) return;
+    setDraftText(selected.text);
+    setDraftCat(selected.category ?? '');
+    setEditor({ mode: 'edit', id: selected.id });
+  }, [selected]);
+
+  // category 取首段（约定单段）；留空 -> none 清除分类。
+  const onSubmitEditor = useCallback(async () => {
+    const text = draftText.trim();
+    if (!text || !editor) return;
+    setSaving(true);
+    try {
+      if (editor.mode === 'add') {
+        await pi.runCommand(workspace, `/memory add ${text}`);
+      } else {
+        const c = draftCat.trim().split(/\s+/)[0] ?? '';
+        await pi.runCommand(
+          workspace,
+          `/memory edit ${editor.id} --cat ${c === '' ? 'none' : c} ${text}`,
+        );
+      }
+      setEditor(null);
+      setSelectedKey(null);
+      reload();
+    } finally {
+      setSaving(false);
+    }
+  }, [draftText, draftCat, editor, workspace, reload]);
 
   const header = (
     <Flexbox horizontal align="center" gap={12} data-testid="mem-header" style={{ fontSize: 13, width: '100%' }}>
@@ -221,12 +255,21 @@ export function MemoryPanel() {
           />
         )}
         <ActionIcon
-          data-testid="mem-delete"
-          icon={Trash2}
+          data-testid="mem-edit"
+          icon={PencilLine}
           size="small"
-          title="删除此记忆"
-          onClick={() => void onDelete()}
+          title="修改此记忆"
+          onClick={() => void onEdit()}
         />
+        <Popconfirm
+          cancelText="取消"
+          okButtonProps={{ 'data-testid': 'mem-delete-confirm', danger: true }}
+          okText="删除"
+          title="删除此记忆？"
+          onConfirm={() => void onDelete()}
+        >
+          <ActionIcon data-testid="mem-delete" icon={Trash2} size="small" title="删除此记忆" />
+        </Popconfirm>
       </Flexbox>
       <div style={{ marginBlockStart: 8, fontSize: 12, color: muted }}>版本历史</div>
       <MemoryHistory memoryId={selected.id} />
@@ -235,15 +278,63 @@ export function MemoryPanel() {
     <div style={{ color: muted, fontSize: 13 }}>选择左侧记忆查看详情</div>
   );
 
+  const editorModal = (
+    <Modal
+      footer={
+        <Flexbox horizontal gap={8} justify="flex-end">
+          <Button data-testid="mem-editor-cancel" onClick={() => setEditor(null)}>
+            取消
+          </Button>
+          <Button
+            data-testid="mem-editor-ok"
+            loading={saving}
+            type="primary"
+            onClick={() => void onSubmitEditor()}
+          >
+            确定
+          </Button>
+        </Flexbox>
+      }
+      open={!!editor}
+      title={editor?.mode === 'add' ? '添加记忆' : '修改记忆'}
+      onCancel={() => setEditor(null)}
+    >
+      <Flexbox gap={12}>
+        <TextArea
+          autoFocus
+          placeholder="记忆内容"
+          rows={4}
+          value={draftText}
+          onChange={(e) => setDraftText(e.target.value)}
+        />
+        {editor?.mode === 'edit' && (
+          <Input
+            placeholder="分类（留空清除，单个词）"
+            value={draftCat}
+            onChange={(e) => setDraftCat(e.target.value)}
+          />
+        )}
+      </Flexbox>
+    </Modal>
+  );
+
   if (view === 'history') {
     return (
-      <ManagerLayout
-        testId="memory-panel"
-        header={header}
-        list={<MemoryHistory />}
-        detail={<div style={{ color: muted, fontSize: 13 }}>全量变更时间线；点条目右侧可回滚</div>}
-      />
+      <>
+        <ManagerLayout
+          testId="memory-panel"
+          header={header}
+          list={<MemoryHistory />}
+          detail={<div style={{ color: muted, fontSize: 13 }}>全量变更时间线；点条目右侧可回滚</div>}
+        />
+        {editorModal}
+      </>
     );
   }
-  return <ManagerLayout testId="memory-panel" header={header} list={list} detail={detail} />;
+  return (
+    <>
+      <ManagerLayout testId="memory-panel" header={header} list={list} detail={detail} />
+      {editorModal}
+    </>
+  );
 }

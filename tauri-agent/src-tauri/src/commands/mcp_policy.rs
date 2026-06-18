@@ -48,7 +48,10 @@ pub async fn read_mcp_tools_cache() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn probe_mcp_server(app: tauri::AppHandle, config_json: String) -> Result<String, String> {
+pub async fn probe_mcp_server(
+    app: tauri::AppHandle,
+    config_json: String,
+) -> Result<String, String> {
     use tauri_plugin_shell::ShellExt;
     let package_dir = crate::pi::sidecar::pi_package_dir();
     let output = app

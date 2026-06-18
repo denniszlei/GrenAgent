@@ -12,6 +12,7 @@ export interface SpawnParams {
   model?: string;
   agent?: string;
   tasks?: TaskInput[];
+  chain?: Array<{ task?: string }>;
 }
 
 function clean(s: string | undefined): string | undefined {
@@ -33,4 +34,14 @@ export function normalizeTasks(params: SpawnParams): NormalizedTask[] {
     }
   }
   return out;
+}
+
+/**
+ * Whether the call carries any runnable work. `chain` is a valid standalone mode
+ * (sequential steps with {previous}) and must NOT require `task`/`tasks` — the
+ * guard that uses this is what previously rejected chain-only calls with
+ * "provide task or tasks".
+ */
+export function spawnHasWork(params: SpawnParams): boolean {
+  return normalizeTasks(params).length > 0 || (params.chain?.length ?? 0) > 0;
 }

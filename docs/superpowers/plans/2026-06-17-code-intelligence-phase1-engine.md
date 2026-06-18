@@ -12,6 +12,32 @@
 
 ---
 
+## 实现纪要（2026-06-17 执行）
+
+> 本节记录实际落地与原计划的偏差、各任务状态、验证结果。原计划下文的「单文件二进制 / externalBin」描述已被「目录型 bundle / resources」取代，代码块仅作参考。
+
+**关键偏差：CodeGraph 是目录型 bundle，不是单文件二进制。** 执行期核实：`@colbymchenry/codegraph` 主 npm 包仅为 JS 垫片，真实产物是 6 个逐平台包 / GitHub Releases 归档（`codegraph-<platform>-<arch>.tar.gz·zip`），每个内含 bundled Node 24 + `lib/dist` + `bin` launcher。单文件 `externalBin` 装不下，经用户确认采用「目录捆绑 + `bundle.resources`」（方案 A）。
+
+**子命令核实（本机实跑 `--help`）：** `serve --mcp [--path] [--no-watch]`（serve 为隐藏命令）、`init [path]`（建 .codegraph + 建图一步）、`index -f [path]`（全量重建）、`sync [path]`（增量）、`status [path]`（人类可读文本，带 ANSI）。`--path` 在 MCP 模式可选，但注入仍显式传 `--path ${workspaceFolder}` 与本机 user MCP 配置一致。
+
+**各任务落地：**
+
+| 任务 | 状态 | 落地说明 |
+| --- | --- | --- |
+| 1 引擎抽象 | 已完成 | `engines.ts`：`buildConfig` 改为指向 bundle launcher，平台分支（unix `bin/codegraph`；win32 `node.exe --liftoff-only lib/dist/bin/codegraph.js`），args 含 `--path ${workspaceFolder}`。 |
+| 2 默认注入 + 让位 | 已完成 | `config.ts injectDefaultServers` + `manager.ts` 接 `readToolsCache()`；签名/同名让位不变。 |
+| 3 捆绑二进制 | 已完成（改目录方案） | 新 `build-codegraph.mjs` 从 GitHub Releases 下载平台 bundle 整目录 → `src-tauri/binaries/codegraph/`（pin `1.0.1`，含 SHA256 校验、strip-components）；`tauri.conf.json` 用 `bundle.resources: ["binaries/codegraph/**/*"]`（`externalBin` 不变）；`package.json` 加 `build:codegraph`。 |
+| 4 Rust 命令 | 已完成 | `commands/code_intel.rs`：5 命令（status/init/sync/reindex/is_initialized），`tokio::process` 直跑 launcher，平台分支 + resource/dev 双路径解析；`mod.rs`/`lib.rs` 已注册。 |
+| 5 自动 init | 已完成 | `commands/agent.rs::open_workspace`：成功 spawn 后、返回前，`CODE_INTEL!=off && CODE_INTEL_AUTO_INIT!=0 && 无 .codegraph` 时 `async_runtime::spawn` 后台 `code_intel_init`（失败仅日志）。 |
+| 6 前端 IO 薄层 | 已完成 | `src/lib/codeIntelIo.ts` 命令名与 Rust 一致。 |
+
+**验证状态：**
+
+- 本机已验证：`extensions` 单测 `code-intel/engines.test.ts` + `mcp/config.test.ts` 共 26 passed；`build-codegraph.mjs` 实跑下载 win32-x64 bundle 成功，launcher `--version` = 1.0.1；`cargo check` 38.74s 零 error/warning；前端 `tsc --noEmit` 中 codeIntelIo 相关 0 错误（唯一既有错误 `App.tsx(640,88)` 与本任务无关）。
+- 待 build 环境验证（本机受限：app 运行锁 / OneDrive / 需完整 tauri 构建）：`npm run build:codegraph && tauri build/dev` 后确认打开未索引项目数秒生成 `.codegraph/` 且 MCP 列表出现非空 `codegraph` server；prod 安装包 resources 路径解析；各 target triple 的 `build:codegraph`（CI 矩阵）。
+
+---
+
 ## 文件结构
 
 - 创建 `extensions/code-intel/engines.ts` — 引擎注册表（纯函数：名称/工具前缀/构建 McpServerConfig/签名识别）。职责：定义 CodeGraph(+GitNexus 占位) 引擎元数据，无 I/O。

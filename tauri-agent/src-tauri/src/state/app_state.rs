@@ -169,7 +169,10 @@ mod tests {
         let mut m = HashMap::new();
         m.insert("OPENAI_API_KEY".to_string(), "sk-x".to_string());
         m.insert("IMAGE_SIZE".to_string(), "  ".to_string());
-        m.insert("titleModel".to_string(), "anthropic/claude-haiku".to_string());
+        m.insert(
+            "titleModel".to_string(),
+            "anthropic/claude-haiku".to_string(),
+        );
         st.replace_settings(m);
         st.save(&path).unwrap();
 

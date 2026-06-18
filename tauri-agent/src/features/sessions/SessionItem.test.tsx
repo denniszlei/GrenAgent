@@ -45,4 +45,13 @@ describe('SessionItem', () => {
     fireEvent.mouseEnter(row);
     expect(within(row).queryAllByRole('button', { hidden: true }).length).toBeGreaterThan(0);
   });
+
+  it('opens the same menu on right-click and fires delete', () => {
+    const onDelete = vi.fn();
+    const { container } = render(<SessionItem {...base} onDelete={onDelete} />);
+    const row = container.querySelector('.pi-session-row') as HTMLElement;
+    fireEvent.contextMenu(row);
+    fireEvent.click(screen.getByText('删除'));
+    expect(onDelete).toHaveBeenCalledOnce();
+  });
 });

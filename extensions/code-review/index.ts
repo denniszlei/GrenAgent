@@ -120,7 +120,7 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify("Review notes cleared.", "info");
         return;
       }
-      ctx.ui.notify("Usage: /review report | /review list | /review clear", "warn");
+      ctx.ui.notify("Usage: /review report | /review list | /review clear", "warning");
     },
   });
 }

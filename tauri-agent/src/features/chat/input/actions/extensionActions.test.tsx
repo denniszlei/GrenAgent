@@ -13,12 +13,19 @@ afterEach(() => {
 function renderWithCtx(ui: ReactNode) {
   const setValue = vi.fn();
   const ctx: ChatInputContextValue = {
-    value: '',
+    editor: {} as ChatInputContextValue['editor'],
+    empty: true,
+    setEmpty: vi.fn(),
     setValue,
     attachments: [],
     addAttachments: vi.fn(),
     removeAttachment: vi.fn(),
+    pastedTexts: [],
+    addPastedText: vi.fn(),
+    removePastedText: vi.fn(),
     isStreaming: false,
+    steering: [],
+    followUp: [],
     send: vi.fn(),
     stop: vi.fn(),
   };

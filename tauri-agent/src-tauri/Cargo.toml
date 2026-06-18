@@ -33,7 +33,10 @@ async-trait = "0.1"
 base64 = "0.22"
 portable-pty = "0.9"
 rusqlite = { version = "0.32", features = ["bundled"] }
-reqwest = "0.12"
+reqwest = { version = "0.12", features = ["stream"] }
+futures-util = "0.3"
+# 仅启用 deflate（最常见的 skill zip 压缩），关闭 bzip2/zstd 以免引入 C 依赖、构建更稳。
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

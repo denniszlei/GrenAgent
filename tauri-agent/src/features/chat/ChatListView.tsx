@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { createStaticStyles } from 'antd-style';
 import { useAgentStore } from '../../stores/AgentStoreContext';
 import { useThrottledValue } from '../../hooks/useThrottledValue';
@@ -30,6 +30,7 @@ export function ChatListView() {
   const display = useMemo(() => groupMessages(throttledMessages), [throttledMessages]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
 
   const handleScroll = () => {
@@ -38,18 +39,35 @@ export function ChatListView() {
     atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 120;
   };
 
-  // 新内容到达后，仅当用户停留在底部时跟随滚底（对齐 SubAgentConversation 的 atBottom 模式）。
-  useEffect(() => {
+  const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  // 新内容到达后，仅当用户停留在底部时跟随滚底。用 layoutEffect 在绘制前完成，
+  // 避免「先按旧位置绘制、再跳到底部」的抽搐（对齐 SubAgentConversation 的 atBottom 模式）。
+  useLayoutEffect(() => {
+    scrollToBottom();
   });
 
-  // 等待占位（对齐 lobehub 的「准备响应中…」）：仅在「还没有助手槽」时用独立占位
-  //（如刚发完用户消息、助手组尚未建立）。一旦存在助手组(assistantGroup)，由 AssistantMessage
-  // 在槽内显示「准备中」，使首字到达时原地替换、不产生抖动。tool 运行中不显示。
+  // 流式打字机会在两次渲染之间持续撑高内容；用 ResizeObserver 跟随高度变化平滑贴底，
+  // 避免只在每次节流渲染时阶梯式跳动。
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const ro = new ResizeObserver(() => scrollToBottom());
+    ro.observe(list);
+    return () => ro.disconnect();
+  }, [scrollToBottom]);
+
+  // 等待占位：仅在「还没有助手 turn」时用独立占位。一旦存在 turn，由 TurnTimeline
+  // 在槽内显示「准备中」。tool / spawn_agent 运行中不显示。
   const last = display[display.length - 1];
+  const lastIsSteer = last?.kind === 'user' && last.steering === true;
   const showPreparing =
-    isStreaming && (!last || (last.kind !== 'assistantGroup' && last.kind !== 'tool'));
+    isStreaming &&
+    !lastIsSteer &&
+    (!last || (last.kind !== 'turn' && last.kind !== 'tool'));
 
   return (
     <div
@@ -58,8 +76,8 @@ export function ChatListView() {
       onScroll={handleScroll}
       data-testid="chat-scroll"
     >
-      <div className={styles.list}>
-        <ChatMessageItems messages={display} />
+      <div ref={listRef} className={styles.list}>
+        <ChatMessageItems messages={display} lazy />
         {showPreparing ? <PreparingIndicator /> : null}
       </div>
     </div>

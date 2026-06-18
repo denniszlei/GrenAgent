@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WorkspaceBar Mockup</title>
+<style>
+  :root {
+    --bg: #161618;
+    --bg-panel: #1d1d20;
+    --bg-elev: #26262b;
+    --bg-elev-2: #2d2d33;
+    --border: #34343b;
+    --border-soft: #2a2a30;
+    --fg: #e6e8ec;
+    --fg-2: #9aa1ac;
+    --fg-3: #6b7280;
+    --acc: #4c8bf5;
+    --acc-bg: rgba(76, 139, 245, 0.14);
+    --ok: #3fb950;
+    --ok-bg: rgba(63, 185, 80, 0.14);
+    --warn: #d29922;
+    --err: #f85149;
+    --err-bg: rgba(248, 81, 73, 0.13);
+    --radius: 12px;
+    --radius-sm: 8px;
+    font-family: "Segoe UI", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); padding: 28px 32px 48px; }
+  .head { max-width: 1180px; margin: 0 auto 22px; }
+  .head h1 { font-size: 18px; font-weight: 650; margin: 0 0 6px; letter-spacing: .3px; }
+  .head p { margin: 0; color: var(--fg-2); font-size: 13px; line-height: 1.6; }
+  .grid { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .span2 { grid-column: 1 / -1; }
+  .card { background: var(--bg-panel); border: 1px solid var(--border-soft); border-radius: 14px; padding: 18px; }
+  .card-label { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--fg-3); margin: 0 0 14px; font-weight: 600; }
+  .stage { background: var(--bg); border: 1px solid var(--border-soft); border-radius: 12px; padding: 22px; }
+
+  /* icon */
+  .i { width: 15px; height: 15px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .i-sm { width: 13px; height: 13px; }
+
+  /* WorkspaceBar */
+  .wsbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chip { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border: 1px solid var(--border);
+          border-radius: 9px; background: var(--bg-elev); color: var(--fg); font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+  .chip:hover { border-color: #43434c; background: var(--bg-elev-2); }
+  .chip .muted { color: var(--fg-2); }
+  .chip .chev { color: var(--fg-3); }
+  .badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px;
+           border-radius: 9px; font-size: 11px; font-weight: 600; background: var(--acc-bg); color: var(--acc); font-family: ui-monospace, monospace; }
+  .badge.run { background: var(--ok-bg); color: var(--ok); }
+  .dot-run { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+
+  /* goal pill (context, same layer) */
+  .goal { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px 0 11px; border: 1px solid var(--border);
+          border-radius: var(--radius); background: var(--bg-elev); margin-bottom: 10px; }
+  .goal .label { font-size: 12px; font-weight: 600; }
+  .goal .text { font-size: 13px; color: var(--fg-2); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .goal .ico-ok { color: var(--ok); }
+
+  /* input surface */
+  .surface { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-elev); padding: 12px 13px;
+             display: flex; flex-direction: column; gap: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.25); }
+  .surface .ph { color: var(--fg-3); font-size: 13.5px; min-height: 46px; }
+  .surface .row { display: flex; align-items: center; justify-content: space-between; }
+  .acts { display: flex; align-items: center; gap: 4px; color: var(--fg-2); }
+  .iconbtn { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; cursor: pointer; }
+  .iconbtn:hover { background: var(--bg-elev-2); color: var(--fg); }
+  .send { width: 30px; height: 30px; border-radius: 50%; background: var(--acc); display: inline-flex; align-items: center; justify-content: center; color: #fff; }
+
+  /* popover panel */
+  .pop { border: 1px solid var(--border); border-radius: 11px; background: var(--bg-elev); overflow: hidden; }
+  .pop-search { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-bottom: 1px solid var(--border-soft); color: var(--fg-3); }
+  .pop-search input { all: unset; flex: 1; font-size: 12.5px; color: var(--fg); }
+  .pop-sec { font-size: 11px; color: var(--fg-3); padding: 9px 12px 4px; letter-spacing: .5px; }
+  .row-item { display: flex; align-items: center; gap: 9px; padding: 8px 12px; font-size: 13px; cursor: pointer; }
+  .row-item:hover { background: var(--bg-elev-2); }
+  .row-item.sel { background: var(--acc-bg); }
+  .row-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row-item .sub { font-size: 11px; color: var(--fg-3); }
+  .pop-foot { border-top: 1px solid var(--border-soft); }
+  .pop-foot .row-item { color: var(--acc); }
+
+  /* diff */
+  .diff-wrap { display: grid; grid-template-columns: 168px 1fr; gap: 0; border: 1px solid var(--border); border-radius: 11px; overflow: hidden; background: var(--bg-elev); }
+  .diff-files { border-right: 1px solid var(--border-soft); padding: 6px; }
+  .diff-file { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; font-size: 12.5px; cursor: pointer; }
+  .diff-file:hover { background: var(--bg-elev-2); }
+  .diff-file.sel { background: var(--bg-elev-2); }
+  .diff-file .fn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag { font-size: 10px; padding: 1px 5px; border-radius: 4px; font-weight: 600; }
+  .tag.m { background: rgba(210,153,34,.16); color: var(--warn); }
+  .tag.a { background: var(--ok-bg); color: var(--ok); }
+  .tag.u { background: rgba(139,148,158,.16); color: var(--fg-2); }
+  .diff-body { padding: 8px 0; font-family: ui-monospace, "Cascadia Code", monospace; font-size: 12px; line-height: 1.7; overflow: hidden; }
+  .dl { padding: 0 12px; white-space: pre; }
+  .dl.h { color: var(--fg-3); }
+  .dl.add { background: var(--ok-bg); color: #7ee787; }
+  .dl.del { background: var(--err-bg); color: #ffa198; }
+
+  /* git graph */
+  .graph { font-family: ui-monospace, monospace; font-size: 12.5px; }
+  .gline { display: flex; align-items: center; gap: 10px; padding: 5px 4px; }
+  .gnode { width: 18px; display: flex; justify-content: center; color: var(--acc); }
+  .gnode svg { width: 14px; height: 14px; }
+  .gmsg { flex: 1; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gmeta { color: var(--fg-3); font-size: 11px; }
+  .gref { font-size: 10px; padding: 1px 6px; border-radius: 9px; background: var(--acc-bg); color: var(--acc); margin-right: 6px; }
+  .gref.head { background: var(--ok-bg); color: var(--ok); }
+
+  /* task tray */
+  .task { display: flex; align-items: center; gap: 10px; padding: 10px 11px; border: 1px solid var(--border-soft); border-radius: 9px; background: var(--bg-elev); margin-bottom: 8px; }
+  .task:last-child { margin-bottom: 0; }
+  .task .ttl { flex: 1; min-width: 0; }
+  .task .ttl .t1 { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .task .ttl .t2 { font-size: 11px; color: var(--fg-3); margin-top: 2px; }
+  .st { font-size: 11px; padding: 2px 8px; border-radius: 9px; font-weight: 600; }
+  .st.run { background: var(--ok-bg); color: var(--ok); }
+  .st.done { background: rgba(139,148,158,.16); color: var(--fg-2); }
+  .st.err { background: var(--err-bg); color: var(--err); }
+  .spin { animation: sp 1s linear infinite; transform-origin: center; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .x { color: var(--fg-3); cursor: pointer; }
+  .x:hover { color: var(--err); }
+  .hint { font-size: 11.5px; color: var(--fg-3); margin-top: 12px; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>WorkspaceBar 视觉伴侣 — 工作区 / Git 功能栏 + 后台任务</h1>
+    <p>接入位置：输入框上方（MessageEditor 的 zone，与 GoalPill 同层）。下方依次为：主输入区静态形态、分支下拉、Diff 面板、Git 图谱、后台任务托盘。深色主题贴合现有 GrenAgent/ZCode 配色，全程无 emoji，图标为 lucide 风格。</p>
+  </div>
+
+  <div class="grid">
+    <!-- 主输入区 -->
+    <div class="card span2">
+      <p class="card-label">主输入区 — 功能栏（WorkspaceBar）静态形态</p>
+      <div class="stage">
+        <div class="wsbar">
+          <span class="chip"><svg class="i" viewBox="0 0 24 24"><path d="M4 20V7a2 2 0 0 1 2-2h3.5l2 2H18a2 2 0 0 1 2 2v3"/><circle cx="12" cy="15" r="2.5"/><path d="M12 12.5V11M12 19v-1.5M14.5 15H16M8 15h1.5"/></svg>Pi<svg class="i i-sm chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span>
+          <span class="chip"><svg class="i" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>feat/terminal-tabs<span class="badge">250</span><svg class="i i-sm chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span>
+          <span class="chip"><svg class="i" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 13h6M12 10v6"/></svg><span class="muted">改动</span></span>
+          <span class="chip"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M12 7.5v3M11 12l-3.5 4.8M13 12l3.5 4.8"/></svg><span class="muted">图谱</span></span>
+          <span class="chip"><span class="dot-run"></span>后台任务<span class="badge run">2</span></span>
+        </div>
+        <div class="goal">
+          <svg class="i ico-ok" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l2.5 1.5" stroke-width="2"/></svg>
+          <span class="label">目标</span>
+          <span class="text">把 WorkspaceBar 接入输入框上方并跑通分支切换</span>
+        </div>
+        <div class="surface">
+          <div class="ph">输入消息，@ 引用文件/目录，/ 调用命令…</div>
+          <div class="row">
+            <div class="acts">
+              <span class="iconbtn"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+              <span class="iconbtn"><svg class="i" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></span>
+              <span class="iconbtn"><svg class="i" viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z"/></svg></span>
+            </div>
+            <div class="send"><svg class="i" viewBox="0 0 24 24" style="stroke:#fff"><path d="m5 12 7-7 7 7M12 5v14"/></svg></div>
+          </div>
+        </div>
+        <div class="hint">说明：分支 chip 上的 250 是 get_git_status 返回的未提交文件数；后台任务徽标来自 subagent_list 中 status=running 的数量（绿点表示有任务在跑）。</div>
+      </div>
+    </div>
+
+    <!-- 分支下拉 -->
+    <div class="card">
+      <p class="card-label">BranchPicker — 分支下拉 / 创建并检出</p>
+      <div class="pop">
+        <div class="pop-search"><svg class="i i-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input placeholder="搜索分支" /></div>
+        <div class="pop-sec">分支</div>
+        <div class="row-item sel"><svg class="i i-sm" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><span class="name">feat/terminal-tabs<div class="sub">未提交的更改：250 个文件</div></span><svg class="i i-sm" viewBox="0 0 24 24" style="color:var(--acc)"><path d="M20 6 9 17l-5-5"/></svg></div>
+        <div class="row-item"><svg class="i i-sm" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><span class="name">master</span></div>
+        <div class="row-item"><svg class="i i-sm" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><span class="name">feat/sidebar-redesign</span></div>
+        <div class="row-item"><svg class="i i-sm" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><span class="name">codex/lobe-chat-stack-3</span></div>
+        <div class="pop-foot">
+          <div class="row-item"><svg class="i i-sm" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/><path d="M21 14v4M19 16h4" stroke-width="2"/></svg><span class="name">创建并检出新分支…</span></div>
+          <div class="row-item"><svg class="i i-sm" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M12 7.5v3M11 12l-3.5 4.8M13 12l3.5 4.8"/></svg><span class="name">Git 图谱</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- diff -->
+    <div class="card">
+      <p class="card-label">DiffPanel — 改动文件列表 + 行级 diff</p>
+      <div class="diff-wrap">
+        <div class="diff-files">
+          <div class="diff-file sel"><span class="tag m">M</span><span class="fn">MessageEditor.tsx</span></div>
+          <div class="diff-file"><span class="tag m">M</span><span class="fn">git.rs</span></div>
+          <div class="diff-file"><span class="tag a">A</span><span class="fn">WorkspaceBar.tsx</span></div>
+          <div class="diff-file"><span class="tag a">A</span><span class="fn">gitStore.ts</span></div>
+          <div class="diff-file"><span class="tag u">U</span><span class="fn">notes.md</span></div>
+        </div>
+        <div class="diff-body">
+          <div class="dl h">@@ -134,6 +134,7 @@ MessageEditor</div>
+          <div class="dl">   &lt;SteerQueue /&gt;</div>
+          <div class="dl">   &lt;GoalPill /&gt;</div>
+          <div class="dl add">+  &lt;WorkspaceBar /&gt;</div>
+          <div class="dl">   &lt;PromptRequestCard /&gt;</div>
+          <div class="dl h">@@ -78,3 +79,11 @@ git.rs</div>
+          <div class="dl del">-  // TODO branches</div>
+          <div class="dl add">+  run_git(&amp;cwd, &["branch", "--format"])</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- git graph -->
+    <div class="card">
+      <p class="card-label">GitGraphPanel — 提交图谱</p>
+      <div class="pop" style="padding:8px 12px">
+        <div class="graph">
+          <div class="gline"><span class="gnode"><svg viewBox="0 0 24 24" fill="var(--acc)" stroke="none"><circle cx="12" cy="12" r="5"/></svg></span><span class="gmsg"><span class="gref head">HEAD -&gt; feat/terminal-tabs</span>wip: 接入 WorkspaceBar</span><span class="gmeta">2m</span></div>
+          <div class="gline"><span class="gnode"><svg viewBox="0 0 24 24" fill="none" stroke="var(--fg-2)" stroke-width="2"><circle cx="12" cy="12" r="4.5"/></svg></span><span class="gmsg">feat: 终端多标签骨架</span><span class="gmeta">1h</span></div>
+          <div class="gline"><span class="gnode"><svg viewBox="0 0 24 24" fill="none" stroke="var(--fg-2)" stroke-width="2"><circle cx="12" cy="12" r="4.5"/></svg></span><span class="gmsg"><span class="gref">master</span>fix: GoalPill 暂停态透明度</span><span class="gmeta">3h</span></div>
+          <div class="gline"><span class="gnode"><svg viewBox="0 0 24 24" fill="none" stroke="var(--fg-3)" stroke-width="2"><circle cx="12" cy="12" r="4.5"/></svg></span><span class="gmsg">chore: 升级 @lobehub/ui</span><span class="gmeta">1d</span></div>
+        </div>
+      </div>
+      <div class="hint">数据：get_git_log_graph(limit) 解析 git log，ref 标签区分 HEAD / 分支名。</div>
+    </div>
+
+    <!-- task tray -->
+    <div class="card">
+      <p class="card-label">TaskTray — 后台任务（复用 subagent）</p>
+      <div class="task">
+        <svg class="i spin" viewBox="0 0 24 24" style="color:var(--ok)"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg>
+        <div class="ttl"><div class="t1">搜索 GitHub 上周热门项目并汇总</div><div class="t2">只读子代理 · gpt-5.5 · 已运行 0:42</div></div>
+        <span class="st run">运行中</span>
+        <span class="x"><svg class="i i-sm" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
+      </div>
+      <div class="task">
+        <svg class="i spin" viewBox="0 0 24 24" style="color:var(--ok)"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg>
+        <div class="ttl"><div class="t1">重构 git.rs 增加分支命令</div><div class="t2">工作子代理 · claude-4.6 · 已运行 0:08</div></div>
+        <span class="st run">运行中</span>
+        <span class="x"><svg class="i i-sm" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
+      </div>
+      <div class="task">
+        <svg class="i" viewBox="0 0 24 24" style="color:var(--fg-2)"><path d="M20 6 9 17l-5-5"/></svg>
+        <div class="ttl"><div class="t1">生成 todo 列表</div><div class="t2">已完成 · 用时 1:12</div></div>
+        <span class="st done">完成</span>
+      </div>
+      <div class="task">
+        <svg class="i" viewBox="0 0 24 24" style="color:var(--err)"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+        <div class="ttl"><div class="t1">部署预览环境</div><div class="t2">失败 · 退出码 1</div></div>
+        <span class="st err">失败</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

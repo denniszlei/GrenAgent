@@ -54,7 +54,6 @@ describe('会话列表搜索', () => {
     expect(within(list).getByText('alpha')).toBeTruthy();
     expect(within(list).getByText('beta')).toBeTruthy();
 
-    fireEvent.click(screen.getByText('搜索会话'));
     const input = screen.getByPlaceholderText('搜索会话 / 项目');
     fireEvent.change(input, { target: { value: 'alpha' } });
 

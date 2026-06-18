@@ -1,4 +1,5 @@
 import { memo, type ReactNode } from 'react';
+import { cssVar } from 'antd-style';
 import { ResizeHandle } from '../../components/ResizeHandle';
 import {
   useLayoutStore,
@@ -38,6 +39,7 @@ export const SidebarShell = memo(function SidebarShell({ children }: SidebarShel
       onResizeLive={setLiveSidebarWidth}
       expand={sidebarVisible}
       onExpandChange={toggleSidebar}
+      backgroundColor={cssVar.colorBgLayout}
     >
       {children}
     </ResizeHandle>
@@ -69,6 +71,7 @@ export const RightPanelShell = memo(function RightPanelShell({ children }: Right
       onResizeLive={setLiveRightPanelWidth}
       expand={rightPanelVisible}
       onExpandChange={toggleRightPanel}
+      backgroundColor={cssVar.colorBgContainer}
     >
       {children}
     </ResizeHandle>
@@ -94,6 +97,7 @@ export const TerminalShell = memo(function TerminalShell({ children }: TerminalS
       onResize={setTerminalHeight}
       expand={terminalOpen}
       onExpandChange={toggleTerminal}
+      backgroundColor={cssVar.colorBgContainer}
     >
       {children}
     </ResizeHandle>

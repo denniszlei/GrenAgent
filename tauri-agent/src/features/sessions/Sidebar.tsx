@@ -1,19 +1,37 @@
-import { useCallback, useState, memo } from 'react';
+import { useCallback, useEffect, useRef, useState, memo } from 'react';
 import { ActionIcon, Flexbox, Text } from '@lobehub/ui';
 import { Dropdown } from 'antd';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { FolderPlus, MessageSquarePlus, PanelLeftClose } from 'lucide-react';
-import { openPath } from '@tauri-apps/plugin-opener';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { VList } from 'virtua';
 import { PanelHeader } from '../../components/PanelHeader';
 import { useSessionStore } from '../../store/session';
 import { useSidebarPrefsStore } from '../../stores/sidebarPrefsStore';
+import { prewarmRecent, prewarmWorkspace } from '../../lib/prewarm';
+import { pathsEquivalent } from '../../lib/pathUtils';
 import { useConversations } from './useConversations';
 import { SidebarActions } from './SidebarActions';
 import { ConversationRow } from './ConversationRow';
 import { GroupSessionRow } from './GroupSessionRow';
 import { ProjectHeaderRow } from './ProjectHeaderRow';
 import { useSidebarItems, type SidebarItem } from './useSidebarItems';
+
+/** 取某侧栏条目对应的工作区 cwd（用于 hover 预热）；分区/标题无 cwd。 */
+function cwdOfItem(item: SidebarItem): string | undefined {
+  switch (item.type) {
+    case 'conversation':
+      return item.item.cwd;
+    case 'session':
+      return item.cwd;
+    case 'project':
+      return item.group.cwd;
+    case 'more':
+      return item.cwd;
+    default:
+      return undefined;
+  }
+}
 
 const styles = createStaticStyles(({ css }) => ({
   sec: css`
@@ -76,7 +94,9 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
 
   const toggleCollapsed = useSidebarPrefsStore((s) => s.toggleCollapsed);
   const togglePinnedProject = useSidebarPrefsStore((s) => s.togglePinnedProject);
+  const togglePinnedConversation = useSidebarPrefsStore((s) => s.togglePinnedConversation);
   const togglePinnedSession = useSidebarPrefsStore((s) => s.togglePinnedSession);
+  const pinnedConversations = useSidebarPrefsStore((s) => s.pinnedConversations);
   const hideProject = useSidebarPrefsStore((s) => s.hideProject);
   const setAlias = useSidebarPrefsStore((s) => s.setAlias);
 
@@ -84,6 +104,17 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
   const [showAllCwds, setShowAllCwds] = useState<Set<string>>(new Set());
 
   const items = useSidebarItems(showAllCwds);
+
+  // 启动后后台预热最近几个对话的 pi 进程，让首次切换也无需等冷启动。
+  const didPrewarmRef = useRef(false);
+  useEffect(() => {
+    if (didPrewarmRef.current || conversations.length === 0) return;
+    didPrewarmRef.current = true;
+    prewarmRecent(
+      conversations.map((c) => c.cwd),
+      4,
+    );
+  }, [conversations]);
 
   const handleSubmitRename = useCallback(
     (cwd: string, path: string, name: string) => {
@@ -93,7 +124,9 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
     [props.onSubmitRename],
   );
   const handleRequestRename = useCallback((path: string) => setRenamingPath(path), []);
-  const handleRevealProject = useCallback((cwd: string) => void openPath(cwd), []);
+  // 用 revealItemInDir 而非 openPath：reveal 在 opener:default 权限内即可用；openPath 需额外
+  // opener:allow-open-path 并重建 Tauri，否则调用被权限拦截、点击"在资源管理器中打开"无反应。
+  const handleRevealProject = useCallback((cwd: string) => void revealItemInDir(cwd), []);
   const handleRenameProject = useCallback(
     (group: { cwd: string; name: string }) => {
       const next = window.prompt('项目别名（留空恢复默认）', group.name);
@@ -146,9 +179,11 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
               item={item.item}
               active={activeSessionPath === item.item.sessionPath}
               running={props.runningSessionPaths.has(item.item.sessionPath)}
+              pinned={pinnedConversations.some((cwd) => pathsEquivalent(cwd, item.item.cwd))}
               editing={renamingPath === item.item.sessionPath}
               onOpen={props.onOpenSession}
               onDelete={props.onDeleteConversation}
+              onPinToggle={togglePinnedConversation}
               onSubmitRename={handleSubmitRename}
               onRequestRename={handleRequestRename}
             />
@@ -188,7 +223,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
         case 'more':
           return (
             <div className={styles.more} onClick={() => handleShowAll(item.cwd)}>
-              查看全部 {item.total} 条
+              查看剩余 {item.remaining} 条
             </div>
           );
         default:
@@ -209,7 +244,9 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
       handleRequestRename,
       toggleCollapsed,
       togglePinnedProject,
+      togglePinnedConversation,
       togglePinnedSession,
+      pinnedConversations,
       hideProject,
       handleRevealProject,
       handleRenameProject,
@@ -225,7 +262,6 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
   return (
     <Flexbox height="100%" style={{ minHeight: 0, background: 'var(--gren-sidebar-bg, transparent)' }}>
       <PanelHeader
-        title="Pi Agent"
         actions={<ActionIcon icon={PanelLeftClose} size="small" title="收起" onClick={props.onToggleSidebar} />}
       />
       <SidebarActions />
@@ -238,7 +274,17 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
           </Flexbox>
         ) : (
           <VList data={items} style={{ height: '100%' }}>
-            {(item: SidebarItem) => <div key={item.key}>{renderItem(item)}</div>}
+            {(item: SidebarItem) => (
+              <div
+                key={item.key}
+                onPointerEnter={() => {
+                  const cwd = cwdOfItem(item);
+                  if (cwd) prewarmWorkspace(cwd);
+                }}
+              >
+                {renderItem(item)}
+              </div>
+            )}
           </VList>
         )}
       </div>

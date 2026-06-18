@@ -171,7 +171,11 @@ pub fn mem_history(
     workspace: String,
     memory_id: Option<String>,
 ) -> Result<Vec<MemHistoryItem>, String> {
-    let mut out = read_mem_history(&mem_project_path(&workspace)?, "project", memory_id.as_deref())?;
+    let mut out = read_mem_history(
+        &mem_project_path(&workspace)?,
+        "project",
+        memory_id.as_deref(),
+    )?;
     if let Some(p) = mem_global_path() {
         out.extend(read_mem_history(&p, "global", memory_id.as_deref())?);
     }
@@ -262,8 +266,10 @@ mod tests {
 
     #[test]
     fn history_missing_db_is_empty() {
-        assert!(read_mem_history(Path::new("/no/such/memory.db"), "global", None)
-            .unwrap()
-            .is_empty());
+        assert!(
+            read_mem_history(Path::new("/no/such/memory.db"), "global", None)
+                .unwrap()
+                .is_empty()
+        );
     }
 }

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { ActionIcon, Flexbox } from '@lobehub/ui';
 import { Dropdown } from 'antd';
+import { cx } from 'antd-style';
 import { PanelRightClose, Plus } from 'lucide-react';
 import { useAgentStore } from '../../stores/AgentStoreContext';
 import {
@@ -8,8 +9,9 @@ import {
   useDockStore,
   type DockRegion,
   type DockTab,
+  type SubAgentPayload,
 } from '../../stores/dockStore';
-import { resolveTone } from './dockTabStyles';
+import { dockTabStyles, resolveTone } from './dockTabStyles';
 import { TabStrip } from './TabStrip';
 import { TabBodyStack } from './TabBodyStack';
 
@@ -27,12 +29,6 @@ export function DockPanel({ region, onCollapse }: DockPanelProps) {
   const setActive = useDockStore((s) => s.setActive);
   const closeTab = useDockStore((s) => s.closeTab);
   const addTab = useDockStore((s) => s.addTab);
-  const syncSubAgentTabs = useDockStore((s) => s.syncSubAgentTabs);
-
-  // 仅右坞实例负责把 subagent tab 与 messages 对齐（subagent 默认落右坞，sync 作用于全部 region）。
-  useEffect(() => {
-    if (region === 'right') syncSubAgentTabs(messages);
-  }, [region, messages, syncSubAgentTabs]);
 
   const subAgentStatus = useMemo(() => {
     const map: Record<string, 'running' | 'done' | 'error'> = {};
@@ -49,7 +45,13 @@ export function DockPanel({ region, onCollapse }: DockPanelProps) {
   const activeId = activeByRegion[region] ?? tabs.at(-1)?.id ?? null;
 
   const toneOf = useCallback(
-    (tab: DockTab) => resolveTone(tab, tab.kind === 'subagent' ? subAgentStatus[tab.id] : undefined),
+    (tab: DockTab) =>
+      resolveTone(
+        tab,
+        tab.kind === 'subagent'
+          ? subAgentStatus[(tab.payload as SubAgentPayload).messageId]
+          : undefined,
+      ),
     [subAgentStatus],
   );
 
@@ -88,7 +90,7 @@ export function DockPanel({ region, onCollapse }: DockPanelProps) {
       : '暂无内容。点击工具卡片（如 fetch_url 结果）或用 spawn_agent 委派任务，会在这里以独立 tab 打开。';
 
   return (
-    <Flexbox className="dock-panel" style={{ height: '100%', minHeight: 0 }}>
+    <Flexbox className={cx('dock-panel', dockTabStyles.container)}>
       <TabStrip
         region={region}
         tabs={tabs}

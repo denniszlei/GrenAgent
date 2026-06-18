@@ -44,8 +44,11 @@
                     └─ 返回 <final_answer> 紧凑 文件:行号 引用 → 回主 agent
 
 代码图谱引擎（默认 CodeGraph，可切 GitNexus）
-  = 捆绑二进制（src-tauri/binaries/codegraph-<triple>）
-  → 默认 MCP 注入（injectDefaultServers，命令指向捆绑二进制，离线）
+  = 捆绑「目录型 bundle」（src-tauri/binaries/codegraph/：bundled Node + lib/dist + bin launcher）
+    经 tauri.conf.json `bundle.resources` 打包（非 externalBin 单文件——见下「离线捆绑」修订）
+  → 默认 MCP 注入（injectDefaultServers，命令指向 bundle launcher，离线）
+       unix : <dir>/bin/codegraph serve --mcp --path <ws>
+       win32: <dir>/node.exe --liftoff-only <dir>/lib/dist/bin/codegraph.js serve --mcp --path <ws>
   → 每个 workspace 自动 init → 引擎自带 watcher 自动同步
   → .codegraph SQLite + FTS5
 ```
@@ -90,11 +93,16 @@
 
 ## 5. Spec 1 · 内置代码图谱引擎
 
-### 离线捆绑
+### 离线捆绑（2026-06-17 修订：目录型 bundle，非单文件）
 
-- 把 CodeGraph 自包含的逐平台二进制 vendor 进 `tauri-agent/src-tauri/binaries/codegraph-<triple>(.exe)`，与现有 `pi-<triple>` 并列。
-- 扩展构建步骤（`build-sidecar.mjs` 或新 `build-codegraph.mjs`）在 build 期拉取 pin 住的 release 二进制并放入；`tauri.conf.json` 的 `externalBin` 增加 `binaries/codegraph`。
-- 运行期：sidecar 已有 `PI_PACKAGE_DIR` 指向 `binaries/`，注入的 MCP `command` 据此解析二进制绝对路径 → 完全离线、无 npx。
+> 原设计假设 CodeGraph 是「自包含单文件二进制」可放进 tauri `externalBin`。执行期核实：CodeGraph 实为**目录型 bundle**——主 npm 包 `@colbymchenry/codegraph` 仅是 JS 垫片，真实产物是 6 个逐平台包（`codegraph-{darwin,linux,win32}-{arm64,x64}`）/ GitHub Releases 的 `codegraph-<platform>-<arch>.tar.gz·zip`，每个内含 bundled Node 24 + `lib/dist` + `bin` launcher（数十 MB）。单文件 `externalBin` 装不下，故改为目录 + `bundle.resources`。
+
+- 把逐平台 bundle 整目录 vendor 进 `tauri-agent/src-tauri/binaries/codegraph/`（与 `pi-<triple>` 同级目录下）。
+- 新构建步骤 `build-codegraph.mjs` 在 build 期从 GitHub Releases 拉取 pin 住版本（`CODEGRAPH_VERSION=1.0.1`）的 `codegraph-<platform>-<arch>` 归档，按上游 shim 同款逻辑（含 SHA256SUMS 校验、`tar --strip-components=1`）解压进 `binaries/codegraph/`。
+- 打包：`tauri.conf.json` 的 `bundle.resources` 增加 `binaries/codegraph/**/*`（`externalBin` 保持仅 `binaries/pi`）。
+- 运行期 MCP 注入：`injectDefaultServers` 用 `PI_PACKAGE_DIR/codegraph` 作为 bundle 根，按平台构造启动命令——unix 走 `bin/codegraph`，win32 走 `node.exe --liftoff-only lib/dist/bin/codegraph.js`（Windows 不能直接 spawn 包内 .cmd——CVE-2024-27980 加固；`--liftoff-only` 同时规避 tree-sitter WASM 在 Node≥22 的 V8 OOM）。`--path ${workspaceFolder}` 由 `expandServerVars` 展开 → 完全离线、无 npx。
+- Rust 一次性命令（status/init/sync/reindex）侧另用 tauri resource resolver（`resolve("binaries/codegraph", Resource)`）优先解析 prod 路径，回退 dev 的 `pi_package_dir()/codegraph`。
+- 注：prod 下 MCP 注入经 pi sidecar 的 `PI_PACKAGE_DIR` 解析，与 pi sidecar 自身的 prod 路径解析同命运（既有待完善项）；Rust 命令侧已用 resource resolver 独立兜底。
 
 ### 自动 init / 同步
 

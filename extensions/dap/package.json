@@ -1,0 +1,23 @@
+{
+  "name": "pi-dap",
+  "version": "0.1.0",
+  "description": "Debug Adapter Protocol integration for the Pi coding agent: drive a real debugger (debugpy first) with breakpoints, stepping, stack/variable inspection and evaluation.",
+  "private": true,
+  "type": "module",
+  "keywords": ["pi-package", "pi-extension", "dap", "debugger", "debugpy"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*",
+    "vitest": "^4.1.8"
+  }
+}

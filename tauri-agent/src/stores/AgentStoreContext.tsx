@@ -38,9 +38,15 @@ export function AgentStoreProvider({ workspace, children }: AgentStoreProviderPr
   // 全屏 loading 只在冷启动（从未就绪过任何对话）显示；一旦首屏完成便永久 true。
   const [appBooted, setAppBooted] = useState(resident);
 
-  useEffect(() => {
+  // 工作区切换时把就绪态重置为 resident —— 必须在「渲染期」重置（React 官方「prop 变化时调整 state」模式），
+  // 不能放进 useEffect：父组件 effect 晚于子组件 effect 执行，会把 Workspace 子 effect 里同步置好的
+  // workspaceReady=true（草稿对话 / 缓存秒显路径）又覆盖回 false，导致 appBooted 永不变 true、永久卡在
+  // 全屏 loading。渲染期重置发生在所有 effect 之前，子 effect 的就绪结果最终生效。
+  const prevWorkspaceRef = useRef(workspace);
+  if (prevWorkspaceRef.current !== workspace) {
+    prevWorkspaceRef.current = workspace;
     setWorkspaceReady(resident);
-  }, [workspace, resident]);
+  }
 
   useEffect(() => {
     if (workspaceReady) setAppBooted(true);

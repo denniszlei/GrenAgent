@@ -45,12 +45,19 @@ function isRpcMode(argv: string[]): boolean {
   return i >= 0 && argv[i + 1] === "rpc";
 }
 
+// pi exposes skills as the `skill:<name>` command but the skill resource itself
+// is keyed by the bare name. Normalize both the disabled list and each skill name
+// to the bare form so the GUI's toggle matches regardless of which form it stored.
+function bareSkillName(name: string): string {
+  return name.startsWith("skill:") ? name.slice(6) : name;
+}
+
 // Skills the user disabled in the GUI (comma-separated names via SKILLS_DISABLED).
 function disabledSkills(): Set<string> {
   return new Set(
     (process.env.SKILLS_DISABLED ?? "")
       .split(",")
-      .map((s) => s.trim())
+      .map((s) => bareSkillName(s.trim()))
       .filter(Boolean),
   );
 }
@@ -71,7 +78,7 @@ const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, agentDir, 
         disabled.size === 0
           ? undefined
           : (base) => ({
-              skills: base.skills.filter((s) => !disabled.has(s.name)),
+              skills: base.skills.filter((s) => !disabled.has(bareSkillName(s.name))),
               diagnostics: base.diagnostics,
             }),
     },

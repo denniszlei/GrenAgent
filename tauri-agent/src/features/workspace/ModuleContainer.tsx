@@ -3,7 +3,6 @@ import { useModuleStore, type ModuleId } from '../../stores/moduleStore';
 import { KnowledgePanel } from '../knowledge/KnowledgePanel';
 import { MemoryPanel } from '../memory/MemoryPanel';
 import { ReviewPanel } from '../review/ReviewPanel';
-import { CreatePanel } from '../create/CreatePanel';
 import { SettingsPanel } from '../settings/SettingsPanel';
 import { ConnectionsPanel } from '../connections/ConnectionsPanel';
 import { ExtensionsPanel } from '../extensions/ExtensionsPanel';
@@ -19,8 +18,6 @@ function ActivePanel({ module }: { module: ModuleId }) {
       return <MemoryPanel />;
     case 'review':
       return <ReviewPanel />;
-    case 'create':
-      return <CreatePanel />;
     case 'settings':
       return <SettingsPanel />;
     case 'connections':

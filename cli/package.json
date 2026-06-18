@@ -18,7 +18,7 @@
     "build": "esbuild src/main.ts --bundle --platform=node --format=esm --target=node22 --banner:js=\"#!/usr/bin/env node\" --external:@earendil-works/pi-coding-agent --outfile=dist/main.js"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "^0.79.4",
+    "@earendil-works/pi-coding-agent": "^0.79.6",
     "typebox": "*"
   },
   "devDependencies": {

@@ -1,4 +1,5 @@
 import { ActionIcon, Flexbox } from '@lobehub/ui';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { BookPlus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useAgentStoreContext } from '../../stores/AgentStoreContext';
@@ -9,6 +10,18 @@ import { LazyMarkdown } from '../chat/LazyMarkdown';
 const muted = 'var(--gren-fg-muted, #9aa1ac)';
 const border = '1px solid var(--gren-border, rgba(255,255,255,0.08))';
 
+/**
+ * 把文件选择器返回的绝对路径转成喂给 `/kb add` 的路径：在工作区内则转相对路径
+ * （source 标签更短、更干净），否则保留绝对路径。统一用正斜杠，跨平台且 Node 的
+ * path.resolve/isAbsolute 在 Windows 上同样接受。
+ */
+export function toWorkspacePath(abs: string, workspace: string): string {
+  const norm = (s: string) => s.replace(/\\/g, '/').replace(/\/+$/, '');
+  const a = norm(abs);
+  const prefix = `${norm(workspace)}/`;
+  return a.toLowerCase().startsWith(prefix.toLowerCase()) ? a.slice(prefix.length) : a;
+}
+
 export function KnowledgePanel() {
   const { workspace } = useAgentStoreContext();
   const [stats, setStats] = useState<KbStats | null>(null);
@@ -16,6 +29,7 @@ export function KnowledgePanel() {
   const [selected, setSelected] = useState<string | null>(null);
   const [chunks, setChunks] = useState<KbChunk[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const reload = useCallback(() => {
     setError(null);
@@ -58,18 +72,36 @@ export function KnowledgePanel() {
   }, [workspace, reload]);
 
   const onAdd = useCallback(async () => {
-    const path = window.prompt('输入要索引的文件路径（相对项目根或绝对路径）：');
-    if (!path?.trim()) return;
-    await pi.runCommand(workspace, `/kb add ${path.trim()}`);
-    reload();
+    const picked = await openDialog({ multiple: true, title: '选择要索引到知识库的文件' });
+    const paths = (Array.isArray(picked) ? picked : picked ? [picked] : []).filter(Boolean);
+    if (paths.length === 0) return;
+    setAdding(true);
+    setError(null);
+    try {
+      for (const abs of paths) {
+        await pi.runCommand(workspace, `/kb add ${toWorkspacePath(abs, workspace)}`);
+      }
+      reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAdding(false);
+    }
   }, [workspace, reload]);
 
   const header = (
     <Flexbox horizontal align="center" gap={12} data-testid="kb-header" style={{ fontSize: 13, width: '100%' }}>
-      <span>{stats ? `${stats.chunks} 块 · ${stats.sources} 文档` : '加载中…'}</span>
+      <span>{adding ? '索引中…' : stats ? `${stats.chunks} 块 · ${stats.sources} 文档` : '加载中…'}</span>
       <span style={{ color: muted }}>{stats?.model ? `embedding: ${stats.model}` : 'keyword 模式'}</span>
       <div style={{ flex: 1 }} />
-      <ActionIcon data-testid="kb-add" icon={BookPlus} size="small" title="添加文档" onClick={() => void onAdd()} />
+      <ActionIcon
+        data-testid="kb-add"
+        disabled={adding}
+        icon={BookPlus}
+        size="small"
+        title="添加文档"
+        onClick={() => void onAdd()}
+      />
       <ActionIcon data-testid="kb-clear" icon={Trash2} size="small" title="清空知识库" onClick={() => void onClear()} />
     </Flexbox>
   );

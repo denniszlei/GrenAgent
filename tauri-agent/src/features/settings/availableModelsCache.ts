@@ -43,20 +43,41 @@ export function invalidateAvailableModels(): void {
   inflight.clear();
 }
 
-/** 读可用模型：初始同步返回缓存（无闪动），后台校验刷新；无 workspace 返回 null。 */
-export function useAvailableModels(workspace: string | undefined): ModelInfo[] | null {
+export interface AvailableModelsState {
+  models: ModelInfo[] | null;
+  /** 冷启动轮询中、尚未拿到首个结果：用于下拉显示 loading 态。缓存命中或轮询结束后为 false。 */
+  loading: boolean;
+}
+
+/**
+ * 读可用模型 + loading 态：初始同步返回缓存（无闪动 / 无 loading）；缓存未命中时轮询期间 loading=true，
+ * 拿到结果或轮询耗尽后转 false。切换 workspace 会把 models 重置为新 workspace 的缓存（或 null），不串台。
+ */
+export function useAvailableModelsState(workspace: string | undefined): AvailableModelsState {
   const [models, setModels] = useState<ModelInfo[] | null>(() =>
     workspace ? (getCachedAvailableModels(workspace) ?? null) : null,
+  );
+  const [loading, setLoading] = useState<boolean>(() =>
+    workspace ? getCachedAvailableModels(workspace) === undefined : false,
   );
   useEffect(() => {
     if (!workspace) {
       setModels(null);
+      setLoading(false);
       return;
     }
     const cached = getCachedAvailableModels(workspace);
-    if (cached) setModels(cached);
+    // 切到新 workspace 先对齐到它自己的缓存（命中秒显、未命中清空），避免沿用上一个 workspace 的列表。
+    setModels(cached ?? null);
+    setLoading(cached === undefined);
+    if (cached) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = (m: ModelInfo[] | null) => {
+      if (cancelled) return;
+      setModels(m);
+      setLoading(false);
+    };
     // Pi 冷启动时 getAvailableModels 可能短暂失败（workspace 尚未 open）或返回空（registry 未就绪）。
     // 轮询重试直到拿到非空模型，避免首屏停在手填 Input、要手动切页面才恢复。
     const attempt = (left: number) => {
@@ -64,7 +85,7 @@ export function useAvailableModels(workspace: string | undefined): ModelInfo[] |
         .then((m) => {
           if (cancelled) return;
           if (m.length > 0 || left <= 0) {
-            setModels(m);
+            settle(m);
             return;
           }
           timer = setTimeout(() => attempt(left - 1), 1000);
@@ -72,7 +93,7 @@ export function useAvailableModels(workspace: string | undefined): ModelInfo[] |
         .catch(() => {
           if (cancelled) return;
           if (left <= 0) {
-            if (!cached) setModels(null);
+            settle(null);
             return;
           }
           timer = setTimeout(() => attempt(left - 1), 1000);
@@ -84,5 +105,10 @@ export function useAvailableModels(workspace: string | undefined): ModelInfo[] |
       if (timer) clearTimeout(timer);
     };
   }, [workspace]);
-  return models;
+  return { models, loading };
+}
+
+/** 读可用模型：初始同步返回缓存（无闪动），后台校验刷新；无 workspace 返回 null。 */
+export function useAvailableModels(workspace: string | undefined): ModelInfo[] | null {
+  return useAvailableModelsState(workspace).models;
 }

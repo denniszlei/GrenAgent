@@ -28,9 +28,13 @@ export function flattenTranscript(messages: unknown[], maxChars = 12000): string
 }
 
 const JUDGE_SYSTEM =
-  "You are an independent judge. Decide whether the assistant has ACTUALLY satisfied the user's stated " +
-  "completion condition, based strictly on the transcript. Be skeptical of optimistic self-claims; require evidence. " +
-  'Output STRICT JSON only (no prose): {"verdict":"ok"|"not_ok","reason":string}. ok = condition fully met; not_ok = not yet.';
+  "You are a strict independent judge. Decide whether the assistant has ACTUALLY satisfied the user's stated " +
+  "completion condition, based solely on concrete evidence in the transcript. Rules: " +
+  "(1) Do NOT trust self-claims like 'done' or 'completed' without concrete evidence (real file edits, command output, or the produced deliverable). " +
+  "(2) If the assistant only greeted, introduced itself, asked questions, made a plan, or did no substantive work toward the condition, the verdict is not_ok. " +
+  "(3) The specific deliverable named in the condition must actually be present in the transcript. " +
+  'Output STRICT JSON only (no prose): {"verdict":"ok"|"not_ok","reason":string}. ok = condition fully and verifiably met; ' +
+  "not_ok = anything less. For not_ok, reason must state what is still missing.";
 
 export function buildJudgeUser(condition: string, transcript: string): string {
   return `Completion condition:\n${condition}\n\nTranscript (most recent last):\n${transcript}`;

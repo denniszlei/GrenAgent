@@ -3,11 +3,25 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderExtensionCard } from './extensionCards';
 
 const openPath = vi.fn();
-vi.mock('@tauri-apps/plugin-opener', () => ({ openPath: (p: string) => openPath(p) }));
+const revealItemInDir = vi.fn();
+vi.mock('@tauri-apps/plugin-opener', () => ({
+  openPath: (p: string) => {
+    openPath(p);
+    return Promise.resolve();
+  },
+  revealItemInDir: (p: string) => {
+    revealItemInDir(p);
+    return Promise.resolve();
+  },
+}));
+vi.mock('../../stores/AgentStoreContext', () => ({
+  useAgentStoreContext: () => ({ workspace: '/proj' }),
+}));
 
 afterEach(() => {
   cleanup();
   openPath.mockReset();
+  revealItemInDir.mockReset();
 });
 
 function renderCard(toolName: string, result: unknown, args: unknown = {}) {
@@ -44,11 +58,12 @@ describe('renderExtensionCard', { timeout: 30_000 }, () => {
     expect(screen.getByTestId('card-memory_recall')).toBeTruthy();
   });
 
-  it('generate_image shows filename and opens file on click', () => {
+  it('generate_image shows filename in tooltip and reveals file on click', () => {
     renderCard('generate_image', { content: [], details: { path: '/proj/.pi/images/img_42.png', model: 'gpt-image-1', size: '1024x1024' } });
-    expect(screen.getByText(/img_42\.png/)).toBeTruthy();
-    fireEvent.click(screen.getByTestId('open-file-generate_image'));
-    expect(openPath).toHaveBeenCalledWith('/proj/.pi/images/img_42.png');
+    // 文件名现在收进 hover tooltip（title 属性），标题展示提示词/占位。
+    expect(screen.getByTitle('img_42.png')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('reveal-file-generate_image'));
+    expect(revealItemInDir).toHaveBeenCalledWith('/proj/.pi/images/img_42.png');
   });
 
   it('spawn_agent shows sub-agent count', () => {
@@ -61,10 +76,10 @@ describe('renderExtensionCard', { timeout: 30_000 }, () => {
     expect(screen.getByText('https://x.dev')).toBeTruthy();
   });
 
-  it('speak opens the audio file on click', () => {
+  it('speak reveals the audio file on click', () => {
     renderCard('speak', { content: [], details: { path: '/proj/.pi/audio/speech_1.mp3', voice: 'alloy', format: 'mp3' } });
-    fireEvent.click(screen.getByTestId('open-file-speak'));
-    expect(openPath).toHaveBeenCalledWith('/proj/.pi/audio/speech_1.mp3');
+    fireEvent.click(screen.getByTestId('reveal-file-speak'));
+    expect(revealItemInDir).toHaveBeenCalledWith('/proj/.pi/audio/speech_1.mp3');
   });
 
   it('todo shows progress and items', () => {
@@ -80,9 +95,22 @@ describe('renderExtensionCard', { timeout: 30_000 }, () => {
       },
     });
     expect(screen.getByTestId('card-todo')).toBeTruthy();
-    expect(screen.getByText('1/2 完成')).toBeTruthy();
+    expect(screen.getByText('待办')).toBeTruthy();
+    expect(screen.getByText('1 / 2')).toBeTruthy();
     expect(screen.getByText(/write tests/)).toBeTruthy();
     expect(screen.getByText(/ship it/)).toBeTruthy();
+  });
+
+  it('todo collapses to a single bar when cleared', () => {
+    renderCard('todo', {
+      content: [{ type: 'text', text: 'Cleared 5 todos' }],
+      details: { action: 'clear', todos: [] },
+    });
+    expect(screen.getByTestId('card-todo')).toBeTruthy();
+    expect(screen.getByText('待办')).toBeTruthy();
+    // 兜底文本进入 header 右侧 count 位置，而非底部单独一行。
+    expect(screen.getByText('Cleared 5 todos')).toBeTruthy();
+    expect(screen.queryByText('暂无待办')).toBeNull();
   });
 
   it('web_search shows result count and links', () => {
@@ -99,6 +127,8 @@ describe('renderExtensionCard', { timeout: 30_000 }, () => {
       },
     });
     expect(screen.getByTestId('card-web_search')).toBeTruthy();
+    // 结果卡默认折叠，点 header 展开后才渲染结果链接。
+    fireEvent.click(screen.getByTestId('card-web_search-toggle'));
     expect(screen.getByText('Result One')).toBeTruthy();
     expect(screen.getByText('Result Two')).toBeTruthy();
     // 结果卡显示 host（去 www），而非完整 URL。

@@ -258,7 +258,6 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
             placeholder: '如 openai/gpt-4o',
             description: '能力档案 model:"strong" 解析到此；留空回退「子代理模型」',
           },
-          { key: 'PI_BIN', label: '子代理可执行文件', type: 'text', description: '留空＝复用本体 sidecar' },
         ],
       },
     ],

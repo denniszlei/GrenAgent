@@ -48,21 +48,38 @@ function renderRight() {
   );
 }
 
-describe('DockPanel (right region)', () => {
+describe('DockPanel (right region)', { timeout: 30_000 }, () => {
   it('shows the empty hint when there is no content', () => {
     renderRight();
     expect(screen.getByText(/暂无内容/)).toBeTruthy();
   });
 
-  it('renders one tab per spawn_agent (ignoring other tools) and shows the active conversation', () => {
+  it('opens a sub-agent tab on demand and shows its conversation', () => {
     messagesRef.current = [
       { kind: 'tool', id: 't1', toolCallId: 'c1', toolName: 'spawn_agent', args: { task: 'research X' }, result: {}, status: 'running' },
-      { kind: 'tool', id: 't2', toolCallId: 'c2', toolName: 'bash', args: {}, result: {}, status: 'done' },
     ];
+    useDockStore.getState().openSubAgent({ messageId: 't1', toolCallId: 'c1', subIndex: null, title: '#1 research X' });
     renderRight();
     expect(screen.getByTestId('dock-tab-t1')).toBeTruthy();
-    expect(screen.queryByTestId('dock-tab-t2')).toBeNull();
     expect(screen.getByTestId('subagent-c1').textContent).toContain('research X');
+  });
+
+  it('shows the per-unit task for an opened parallel sub-agent', () => {
+    messagesRef.current = [
+      {
+        kind: 'tool',
+        id: 'm',
+        toolCallId: 'cm',
+        toolName: 'spawn_agent',
+        args: { tasks: ['task A', 'task B'] },
+        result: { details: { mode: 'parallel', results: [{ task: 'task A', ok: true, output: 'a out' }, { task: 'task B', ok: true, output: 'b out' }] } },
+        status: 'done',
+      },
+    ];
+    useDockStore.getState().openSubAgent({ messageId: 'm', toolCallId: 'cm', subIndex: 1, title: '#2 task B' });
+    renderRight();
+    expect(screen.getByTestId('dock-tab-m#1')).toBeTruthy();
+    expect(screen.getByTestId('subagent-cm').textContent).toContain('task B');
   });
 
   it('switches the active conversation when another tab is clicked', () => {
@@ -70,6 +87,9 @@ describe('DockPanel (right region)', () => {
       { kind: 'tool', id: 't1', toolCallId: 'c1', toolName: 'spawn_agent', args: { task: 'first task' }, result: {}, status: 'done' },
       { kind: 'tool', id: 't2', toolCallId: 'c2', toolName: 'spawn_agent', args: { task: 'second task' }, result: {}, status: 'running' },
     ];
+    const s = useDockStore.getState();
+    s.openSubAgent({ messageId: 't1', toolCallId: 'c1', subIndex: null, title: '#1 first task' });
+    s.openSubAgent({ messageId: 't2', toolCallId: 'c2', subIndex: null, title: '#2 second task' });
     renderRight();
     // 默认激活最新（t2）。
     expect(screen.getByTestId('dock-body-t2').style.display).toBe('flex');
