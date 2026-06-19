@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ProjectTrustEventResult } from "@earendil-works/pi-coding-agent";
 import { extractPath, isDangerousBash, isMutatingBash, matchProtectedPath, matchWriteAllowed } from "./rules.js";
 import { getConfig } from "../_shared/runtime-config.js";
+import { getSandbox } from "../_shared/sandbox/index.js";
 
 const off = (v: string | undefined) => v === "0" || v?.toLowerCase() === "false";
 
@@ -25,6 +26,14 @@ export default function (pi: ExtensionAPI) {
 
     if (denyTools.includes(event.toolName)) {
       return { block: true, reason: `能力档案禁用工具：${event.toolName}` };
+    }
+    // 沙箱模式（SANDBOX_ENABLE=on 且沙箱可用）：禁内置 bash，steer 到 sandbox_sh（WSL2 隔离执行）。
+    // 仅在显式 on 时探测，避免 owner 默认会话承担探测开销。
+    if (event.toolName === "bash" && getConfig("SANDBOX_ENABLE") === "on" && (await getSandbox().isAvailable())) {
+      return {
+        block: true,
+        reason: "沙箱模式：内置 bash 已禁用，请改用 sandbox_sh（隔离环境执行，写限 workspace、网络默认禁）。",
+      };
     }
     if (readonly) {
       if (event.toolName === "write" || event.toolName === "edit") {

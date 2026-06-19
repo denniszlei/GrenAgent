@@ -13,12 +13,15 @@ import { JsKernel } from "./js-kernel.js";
 import { type PythonInfo, PythonKernel, detectPython } from "./kernel.js";
 import { formatResult } from "./protocol.js";
 import { runCodeInSandbox, sandboxRoutingOn } from "./sandbox-exec.js";
+import { registerSandboxSh } from "./sandbox-sh.js";
 
 const RUNNER_PATH = join(dirname(fileURLToPath(import.meta.url)), "runner.py");
 const JS_RUNNER_PATH = join(dirname(fileURLToPath(import.meta.url)), "runner.mjs");
 
 export default function (pi: ExtensionAPI) {
   console.error("[code-exec] extension loaded");
+
+  registerSandboxSh(pi);
 
   const kernels = new Map<string, PythonKernel>();
   // undefined=未探测；null=探测过且不可用；PythonInfo=可用解释器。
