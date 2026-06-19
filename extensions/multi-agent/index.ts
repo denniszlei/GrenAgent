@@ -8,7 +8,7 @@ import { normalizeTasks, spawnHasWork } from "./tasks.js";
 import { getApprovalPolicy } from "../_shared/approval.js";
 import { sandboxAvailable } from "../_shared/sandbox-gate.js";
 import { resolveProfile, profileToModel, profileToEnv, profileLimits, type ProfileInput } from "./capability.js";
-import { discoverAgents, type AgentScope } from "./agents.js";
+import { discoverAgents, resolveAgent, suggestAgent, type AgentScope } from "./agents.js";
 import { createWorktree, worktreeDiff } from "./worktree.js";
 import { SubAgentRegistry, type SubAgentRow } from "./registry.js";
 import { cancelSubAgent, installCancelWatcher } from "./cancel.js";
@@ -100,7 +100,10 @@ export default function (pi: ExtensionAPI) {
         ),
       ),
       agent: Type.Optional(
-        Type.String({ description: "Named agent (from ~/.pi/agent/agents/*.md): applies its system prompt + tools + model." }),
+        Type.String({
+          description:
+            "Named agent (from ~/.pi/agent/agents/*.md): applies its system prompt + tools + model. Defaults: scout (codebase recon/exploration), planner, reviewer, worker. Synonyms like 'explorer'/'explore' resolve to scout.",
+        }),
       ),
       agentScope: Type.Optional(
         Type.Union([Type.Literal("user"), Type.Literal("project"), Type.Literal("both")], {
@@ -237,14 +240,22 @@ export default function (pi: ExtensionAPI) {
       }
       const profileModel = profileToModel(profile, getConfig);
       const profileEnv: Record<string, string> = params.profile ? profileToEnv(profile) : {};
-      // 子代理继承 owner 当前审批策略（headless 下 ask 在 safety 内降级为 auto，不会全拦）。
-      profileEnv.APPROVAL_POLICY = getApprovalPolicy();
+      // 子代理继承 owner 审批策略，但把 `full` 下调为 `auto`：自主 spawn 的子代理对用户可见性低，
+      // 不应连 safety 的危险命令确认 / 受保护路径拦截（⑤）都跳过。能力硬限（① readonly/deny）与
+      // owner 自身会话不受影响——这里只收紧"模型自动起的子代理"。headless 下 ask 仍在 safety 内
+      // 降级为 auto 行为（不全拦），故 auto 是安全且足够的下限。
+      const ownerPolicy = getApprovalPolicy();
+      profileEnv.APPROVAL_POLICY = ownerPolicy === "full" ? "auto" : ownerPolicy;
       const limits = profileLimits(profile);
       // sandbox 档：可用则让子代理 code-exec/sandbox_sh 走 WSL2 沙箱（safety 禁内置 bash）；
-      // 不可用则静默回退 process 隔离（profileEnv 的 deny/readonly 仍生效）。
-      if (wantSandbox && (await sandboxAvailable())) {
-        profileEnv.SANDBOX_ENABLE = "on";
+      // 不可用则回退 process 隔离（profileEnv 的 deny/readonly 仍生效），并标记 isolationDowngraded
+      // 在结果里告知调用方/用户隔离强度被降级，而非误以为仍在 sandbox 内执行。
+      let isolationDowngraded = false;
+      if (wantSandbox) {
+        if (await sandboxAvailable()) profileEnv.SANDBOX_ENABLE = "on";
+        else isolationDowngraded = true;
       }
+      const downgradeNote = "\n\n---\n注意：请求了 sandbox 隔离，但当前环境不可用（WSL2 未就绪），已回退到进程隔离执行。";
 
       // Named-agent resolution (markdown agents in ~/.pi/agent/agents + .pi/agents).
       // A named agent contributes its system prompt + tool allowlist + model.
@@ -253,10 +264,12 @@ export default function (pi: ExtensionAPI) {
       const agentLayer = (name: string | undefined): { systemPrompt?: string; tools?: string[]; model?: string } => {
         const n = name?.trim();
         if (!n) return {};
-        const a = discovered.find((x) => x.name === n);
+        const a = resolveAgent(discovered, n);
         if (!a) {
           const avail = discovered.map((x) => x.name).join(", ") || "none";
-          throw new Error(`unknown agent "${n}". Available agents: ${avail}`);
+          const suggestion = suggestAgent(discovered, n);
+          const hint = suggestion ? ` Did you mean "${suggestion}"?` : "";
+          throw new Error(`unknown agent "${n}".${hint} Available agents: ${avail}`);
         }
         return { systemPrompt: a.systemPrompt, tools: a.tools, model: a.model };
       };
@@ -360,10 +373,12 @@ export default function (pi: ExtensionAPI) {
           content: [
             {
               type: "text",
-              text: `Background sub-agent started. agentId: ${id}\nUse spawn_agent({ action: "wait", agentId: "${id}" }) to await, or "status" / "cancel".`,
+              text:
+                `Background sub-agent started. agentId: ${id}\nUse spawn_agent({ action: "wait", agentId: "${id}" }) to await, or "status" / "cancel".` +
+                (isolationDowngraded ? downgradeNote : ""),
             },
           ],
-          details: { agentId: id, status: "running" },
+          details: { agentId: id, status: "running", ...(isolationDowngraded ? { isolationDowngraded: true } : {}) },
         };
       }
 
@@ -414,12 +429,20 @@ export default function (pi: ExtensionAPI) {
           }
           const diff = wt ? await worktreeDiff(wt.dir) : undefined;
           registry.finish(id, { status: "done", output: r.output, exitCode: r.exitCode });
-          const text = wt
+          const baseText = wt
             ? `${r.output || "(no output)"}\n\n---\n### Diff (isolated worktree)\n\n${diff?.trim() ? "```diff\n" + diff + "\n```" : "(no file changes)"}`
             : r.output || "(no output)";
+          const text = isolationDowngraded ? baseText + downgradeNote : baseText;
           return {
             content: [{ type: "text", text }],
-            details: { agentId: id, exitCode: r.exitCode, transcript: r.transcript, isolated: !!wt, diff },
+            details: {
+              agentId: id,
+              exitCode: r.exitCode,
+              transcript: r.transcript,
+              isolated: !!wt,
+              diff,
+              ...(isolationDowngraded ? { isolationDowngraded: true } : {}),
+            },
           };
         } finally {
           if (wt) await wt.cleanup();
