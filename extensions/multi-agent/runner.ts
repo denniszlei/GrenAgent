@@ -134,7 +134,9 @@ export function buildSubagentRuntimeConfig(
   const merged = { ...base, ...env };
   const path = join(tmpdir(), `pi-subagent-rc-${randomBytes(4).toString("hex")}.json`);
   try {
-    writeFileSync(path, JSON.stringify(merged), "utf8");
+    // 0o600：派生配置全量继承父 runtime-config（含 MCP_SERVERS 等可能带 token 的字段），
+    // 落到共享 tmpdir 时限制为仅本用户可读，避免多用户机（Linux /tmp）上被同机其他用户读取。
+    writeFileSync(path, JSON.stringify(merged), { encoding: "utf8", mode: 0o600 });
   } catch {
     return { path: undefined, env, cleanup: () => {} };
   }
@@ -183,7 +185,7 @@ export async function spawnPiAgent(
   if (opts.systemPrompt && opts.systemPrompt.trim()) {
     promptFile = join(tmpdir(), `pi-subagent-sp-${randomBytes(4).toString("hex")}.md`);
     try {
-      writeFileSync(promptFile, opts.systemPrompt, "utf8");
+      writeFileSync(promptFile, opts.systemPrompt, { encoding: "utf8", mode: 0o600 });
       args.push("--append-system-prompt", promptFile);
     } catch {
       promptFile = undefined;
