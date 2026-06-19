@@ -5,6 +5,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { spawnPiAgent } from "./runner.js";
 import { normalizeTasks, spawnHasWork } from "./tasks.js";
+import { getSandbox } from "../_shared/sandbox/index.js";
 import { resolveProfile, profileToModel, profileToEnv, profileLimits, type ProfileInput } from "./capability.js";
 import { discoverAgents, type AgentScope } from "./agents.js";
 import { createWorktree, worktreeDiff } from "./worktree.js";
@@ -224,8 +225,9 @@ export default function (pi: ExtensionAPI) {
       if (!spawnHasWork(params)) throw new Error("provide `task`, `tasks`, or `chain`");
 
       const profile = resolveProfile(params.profile as ProfileInput | undefined);
-      if (profile.isolation === "sandbox") {
-        throw new Error("isolation 'sandbox' 尚未支持（规划于 P4）；当前支持 process | worktree");
+      const wantSandbox = profile.isolation === "sandbox";
+      if (wantSandbox && (hasChain || list.length !== 1)) {
+        throw new Error("sandbox 隔离仅支持单任务（不支持并行 tasks / chain）");
       }
       const wantWorktree = profile.isolation === "worktree";
       // chain has its own worktree guard below; only the single/parallel path is gated here.
@@ -233,8 +235,13 @@ export default function (pi: ExtensionAPI) {
         throw new Error("worktree 隔离仅支持单任务（不支持并行 tasks）");
       }
       const profileModel = profileToModel(profile, getConfig);
-      const profileEnv = params.profile ? profileToEnv(profile) : {};
+      const profileEnv: Record<string, string> = params.profile ? profileToEnv(profile) : {};
       const limits = profileLimits(profile);
+      // sandbox 档：可用则让子代理 code-exec/sandbox_sh 走 WSL2 沙箱（safety 禁内置 bash）；
+      // 不可用则静默回退 process 隔离（profileEnv 的 deny/readonly 仍生效）。
+      if (wantSandbox && (await getSandbox().isAvailable())) {
+        profileEnv.SANDBOX_ENABLE = "on";
+      }
 
       // Named-agent resolution (markdown agents in ~/.pi/agent/agents + .pi/agents).
       // A named agent contributes its system prompt + tool allowlist + model.
