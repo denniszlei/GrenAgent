@@ -14,6 +14,7 @@ import github from "./github/index.js";
 import batchTools from "./batch-tools/index.js";
 import diagnostics from "./diagnostics/index.js";
 import imGateway from "./im-gateway/index.js";
+import imPlatforms from "./im-platforms/index.js";
 import goal from "./goal/index.js";
 import imageGen from "./image-gen/index.js";
 import knowledgeRag from "./knowledge-rag/index.js";
@@ -31,6 +32,7 @@ import hashline from "./hashline/index.js";
 import dap from "./dap/index.js";
 import diagramHint from "./diagram-hint/index.js";
 import safety from "./safety/index.js";
+import approval from "./approval/index.js";
 import todo from "./todo/index.js";
 import tts from "./tts/index.js";
 import webFetch from "./web-fetch/index.js";
@@ -39,6 +41,7 @@ import webSearch from "./web-search/index.js";
 
 export {
   safety,
+  approval,
   loopGuard,
   rulebook,
   compactionPolicy,
@@ -72,11 +75,13 @@ export {
   hashline,
   tts,
   imGateway,
+  imPlatforms,
 };
 
 // Order roughly by general usefulness; safety first so guardrails intercept earliest.
 export const allExtensions = [
   safety,
+  approval,
   loopGuard,
   rulebook,
   compactionPolicy,
@@ -110,4 +115,5 @@ export const allExtensions = [
   hashline,
   tts,
   imGateway,
+  imPlatforms,
 ];
