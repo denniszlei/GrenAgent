@@ -776,3 +776,23 @@ git commit -m "feat(sandbox): 连接面板 SandboxCard 状态 + 一键安装"
 - **依赖现状**：Debian 内 `command -v srt bwrap socat` → **DEPS_MISSING**。即本机沙箱「未就绪」，应走优雅降级 + 引导安装（任务 13）。未擅自安装（需 sudo/网络、改用户环境）。
 - **srt-in-WSL2 形态**：按官方 `@anthropic-ai/sandbox-runtime` README 确认：`srt [--settings <file>] <command>`；settings JSON = `{ filesystem: { denyRead, allowRead, allowWrite, denyWrite }, network: { allowedDomains, deniedDomains } }`（写默认拒、网络默认拒）。任务 3/6 据此实现。待装依赖后于任务 15 端到端复核。
 - **tool-override**：pi 包未安装到 `cli/node_modules`（无法本地核验是否支持「override 返回结果」）。**采用保守 B 路**：沙箱模式禁内置 `bash` + 注册自有 `sandbox_sh`（任务 10）。后续若确认 override 可用可平滑切 A 路。
+
+## 任务 15 端到端结论（2026-06-19，真 WSL2 Debian）
+
+依赖装齐后（bubblewrap/socat/srt/**ripgrep**）走真实 `getSandbox()→WslSandbox→srt` 全链路验证通过：
+
+```
+isAvailable: true
+HELLO_VIA_OUR_CODE        # 命令在沙箱内执行
+NET_BLOCKED               # 网络默认禁（控制组 srt 外为 NET_OK）
+WRITE_WS_OK               # 写 workspace（路径含空格 /mnt/d/OneDrive/Project Files/Pi）放行
+ETC_BLOCKED               # 写 /etc（workspace 外）被拒
+```
+
+e2e 暴露并修复了 3 个会让沙箱完全失效的 bug（均已含在任务 15 提交）：
+
+1. **缺 ripgrep 探测**：`srt` 运行时依赖 `rg`，原探测只查 `srt/bwrap/socat` → rg 缺失时误报可用、运行时炸。探测 + 安装均补 `ripgrep`。
+2. **wslExec UTF-16 误解码**：`wsl.exe` 自身输出（`-l -v`）是 UTF-16LE，但子命令（`-d .. -- ..`）输出是 UTF-8；原代码一律按 UTF-16 解码 → deps 探测的 "OK" 成乱码 → 探测永远失败 → 永远降级。改为「剔 NUL 字节 + UTF-8 解码」，两者皆成立。
+3. **wsl 吞位置参数**：`wsl -- bash -lc <script> a b c` 不会把 a/b/c 传给 `$1/$2`（实测为空）→ 命令为空、什么都没跑。改为**命令 base64 后管道喂进沙箱 bash** + 经登录 shell（解析 srt/node 的自定义 PATH）。
+
+srt settings schema 经实测确认为全字段必填（`denyRead/allowWrite/denyWrite` + `allowedDomains/deniedDomains`），与 `buildSrtSettings` 产出一致。
