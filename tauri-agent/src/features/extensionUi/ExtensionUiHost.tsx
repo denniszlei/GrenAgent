@@ -6,6 +6,8 @@ import { useGoalStore, type GoalInfo } from '../../stores/goalStore';
 import { useMcpStatusStore, type McpServerStatus } from '../../stores/mcpStatusStore';
 import { isAgentMode, useModeStore } from '../../stores/modeStore';
 import { useUiPromptStore } from '../../stores/uiPromptStore';
+import { isApprovalPolicy, useApprovalStore } from '../../stores/approvalStore';
+import { useWechatStatusStore, type WechatStatus } from '../../stores/wechatStatusStore';
 
 type MessageLevel = 'info' | 'success' | 'warning' | 'error';
 
@@ -81,6 +83,15 @@ export function ExtensionUiHost() {
             servers = [];
           }
           useMcpStatusStore.getState().setServers(servers);
+        } else if (r.statusKey === 'wechat') {
+          try {
+            const parsed = typeof r.statusText === 'string' ? (JSON.parse(r.statusText) as WechatStatus) : null;
+            if (parsed && typeof parsed.status === 'string') useWechatStatusStore.getState().setWechat(parsed);
+          } catch {
+            /* ignore malformed status */
+          }
+        } else if (r.statusKey === 'approval-policy') {
+          if (isApprovalPolicy(r.statusText)) useApprovalStore.getState().setLevel(e.workspace, r.statusText);
         }
         return;
       }

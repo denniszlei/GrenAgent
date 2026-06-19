@@ -212,6 +212,8 @@ export const pi = {
   setThinkingLevel: (workspace: string, level: string) =>
     invoke<unknown>('agent_set_thinking_level', { workspace, level }),
   setMode: (workspace: string, mode: string) => invoke<unknown>('agent_set_mode', { workspace, mode }),
+  setApproval: (workspace: string, level: string) =>
+    invoke<unknown>('agent_set_approval', { workspace, level }),
   compact: (workspace: string) => invoke<unknown>('agent_compact', { workspace }),
   getState: (workspace: string) => invoke<unknown>('agent_get_state', { workspace }),
   getMessages: (workspace: string) => invoke<{ messages: AgentMessage[] }>('agent_get_messages', { workspace }),

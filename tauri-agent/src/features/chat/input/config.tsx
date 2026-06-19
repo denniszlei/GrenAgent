@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react';
 import ModeAction from './actions/ModeAction';
+import ApprovalAction from './actions/ApprovalAction';
 import ModelAction from './actions/ModelAction';
 import ThinkingAction from './actions/ThinkingAction';
 import CompactAction from './actions/CompactAction';
@@ -16,6 +17,7 @@ import SpeakAction from './actions/SpeakAction';
  */
 export const actionMap = {
   mode: ModeAction,
+  approval: ApprovalAction,
   model: ModelAction,
   thinking: ThinkingAction,
   compact: CompactAction,
@@ -35,6 +37,7 @@ export type ActionKey = keyof typeof actionMap;
  */
 export const ACTION_LABELS: Record<ActionKey, string> = {
   mode: '模式',
+  approval: '审批',
   model: '模型',
   thinking: '思考强度',
   compact: '压缩上下文',
@@ -48,6 +51,7 @@ export const ACTION_LABELS: Record<ActionKey, string> = {
 
 export const DEFAULT_LEFT_ACTIONS: ActionKey[] = [
   'mode',
+  'approval',
   'model',
   'thinking',
   'fileUpload',
@@ -81,6 +85,7 @@ export const COLLAPSE_PRIORITY: ActionKey[] = [
  */
 export const ACTION_WIDTH = {
   mode: 96,
+  approval: 96,
   model: 180,
   thinking: 84,
   fileUpload: 28,
