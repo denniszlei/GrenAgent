@@ -4,7 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { getAllConfig, getConfig, watchConfig } from "../_shared/runtime-config.js";
-import { expandServerVars, injectDefaultServers, type McpServerConfig, parseMcpServers } from "./config.js";
+import { expandServerVars, injectDefaultServers, type McpServerConfig, parseMcpServers, sanitize } from "./config.js";
 import { diffServers } from "./diff.js";
 import type { ProbeResult } from "./probe.js";
 import { readToolsCache, writeToolsCacheEntry } from "./toolsCache.js";
@@ -126,7 +126,9 @@ export function createManager(deps: ManagerDeps = {}): McpManager {
       const { tools } = await withTimeout(client.listTools(), MCP_TIMEOUT_MS);
       catalog.set(s.name, { status: "connected", tools });
       try {
-        writeCache(s.name, { ok: true, toolNames: tools.map((t) => t.name) });
+        // 写「全名」mcp__server__tool（与 probe.ts、运行时工具注册、mcp-policy 查询一致）。
+        // 原先写裸名 t.name 导致 UI/策略 key 与扩展查的全名对不上 → 权限设置不生效。
+        writeCache(s.name, { ok: true, toolNames: tools.map((t) => `mcp__${sanitize(s.name)}__${sanitize(t.name)}`) });
       } catch {
         // best-effort 缓存
       }
