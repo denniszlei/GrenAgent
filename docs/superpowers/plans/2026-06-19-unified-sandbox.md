@@ -770,7 +770,9 @@ git commit -m "feat(sandbox): 连接面板 SandboxCard 状态 + 一键安装"
 
 **3. 类型一致性：** `SandboxAdapter.{isAvailable,exec}`、`SandboxSpec.{cwd,writableRoots,network,timeoutMs}`、`SandboxResult.{stdout,stderr,code}`、`getSandbox(opts?)`、`buildSrtSettings(spec,wslCwd)`、`winToWslPath`、`parseWslDistros/pickDistro`、`WslSandbox({distro,run,writeSettings})` 全程一致。
 
-## spike 结论（任务 0 回填）
+## spike 结论（任务 0 回填，2026-06-19）
 
-- srt-in-WSL2 形态：________（确认 `srt --settings <file> bash -lc <cmd>` 与 settings 键名）
-- tool-override：________（A 透明替换 / B 禁 bash + sandbox_sh）
+- **WSL2 环境**：已装 WSL 2.6.3.0（内核 6.6.87），默认发行版 **Debian（VERSION 2，Stopped）**。`pickDistro` 选它即可。
+- **依赖现状**：Debian 内 `command -v srt bwrap socat` → **DEPS_MISSING**。即本机沙箱「未就绪」，应走优雅降级 + 引导安装（任务 13）。未擅自安装（需 sudo/网络、改用户环境）。
+- **srt-in-WSL2 形态**：按官方 `@anthropic-ai/sandbox-runtime` README 确认：`srt [--settings <file>] <command>`；settings JSON = `{ filesystem: { denyRead, allowRead, allowWrite, denyWrite }, network: { allowedDomains, deniedDomains } }`（写默认拒、网络默认拒）。任务 3/6 据此实现。待装依赖后于任务 15 端到端复核。
+- **tool-override**：pi 包未安装到 `cli/node_modules`（无法本地核验是否支持「override 返回结果」）。**采用保守 B 路**：沙箱模式禁内置 `bash` + 注册自有 `sandbox_sh`（任务 10）。后续若确认 override 可用可平滑切 A 路。
