@@ -1,12 +1,43 @@
 import type { ExtensionAPI, ProjectTrustEventResult } from "@earendil-works/pi-coding-agent";
-import { extractPath, isDangerousBash, isMutatingBash, matchProtectedPath, matchWriteAllowed } from "./rules.js";
+import { extractPath, isDangerousBash, isMutatingBash, isUnderCwd, matchProtectedPath, matchWriteAllowed } from "./rules.js";
+import { getApprovalPolicy } from "../_shared/approval.js";
 import { getConfig } from "../_shared/runtime-config.js";
-import { getSandbox } from "../_shared/sandbox/index.js";
+import { sandboxOn } from "../_shared/sandbox-gate.js";
 
 const off = (v: string | undefined) => v === "0" || v?.toLowerCase() === "false";
+const NET_TOOLS = new Set(["web_search", "web_fetch", "web_crawler"]);
 
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
+    // 审批策略（与模式正交）：full 放行一切；ask 额外对越界写/联网弹确认；auto 维持既有门控。
+    const policy = getApprovalPolicy();
+    if (policy === "full") return undefined;
+
+    // 沙箱激活时（SANDBOX_ENABLE!=off 且策略!=full 且沙箱可用）禁内置 bash，steer 到 sandbox_sh。
+    if (event.toolName === "bash" && (await sandboxOn())) {
+      return {
+        block: true,
+        reason: "沙箱模式：内置 bash 已禁用，请改用 sandbox_sh（隔离环境执行，写限 workspace、网络默认禁）。",
+      };
+    }
+
+    // 请求批准（ask）：写工作区外文件 / 联网 → 逐次确认（无 UI 则默认拒绝）。
+    if (policy === "ask") {
+      if (NET_TOOLS.has(event.toolName)) {
+        if (!ctx.hasUI) return { block: true, reason: "请求批准模式：无 UI，默认拒绝联网" };
+        const choice = await ctx.ui.select(`请求批准：允许联网？\n\n  工具：${event.toolName}`, ["允许", "拒绝"]);
+        if (choice !== "允许") return { block: true, reason: "用户拒绝联网" };
+      }
+      if (event.toolName === "write" || event.toolName === "edit") {
+        const p = extractPath((event.input ?? {}) as Record<string, unknown>);
+        if (p && !isUnderCwd(p, ctx.cwd)) {
+          if (!ctx.hasUI) return { block: true, reason: "请求批准模式：无 UI，默认拒绝越界写" };
+          const choice = await ctx.ui.select(`请求批准：允许写工作区外文件？\n\n  ${p}`, ["允许", "拒绝"]);
+          if (choice !== "允许") return { block: true, reason: "用户拒绝越界写" };
+        }
+      }
+    }
+
     const guardBash = !off(getConfig("SAFETY_BASH_CONFIRM"));
     const guardPaths = !off(getConfig("SAFETY_PROTECT_PATHS"));
 
@@ -26,14 +57,6 @@ export default function (pi: ExtensionAPI) {
 
     if (denyTools.includes(event.toolName)) {
       return { block: true, reason: `能力档案禁用工具：${event.toolName}` };
-    }
-    // 沙箱模式（SANDBOX_ENABLE=on 且沙箱可用）：禁内置 bash，steer 到 sandbox_sh（WSL2 隔离执行）。
-    // 仅在显式 on 时探测，避免 owner 默认会话承担探测开销。
-    if (event.toolName === "bash" && getConfig("SANDBOX_ENABLE") === "on" && (await getSandbox().isAvailable())) {
-      return {
-        block: true,
-        reason: "沙箱模式：内置 bash 已禁用，请改用 sandbox_sh（隔离环境执行，写限 workspace、网络默认禁）。",
-      };
     }
     if (readonly) {
       if (event.toolName === "write" || event.toolName === "edit") {

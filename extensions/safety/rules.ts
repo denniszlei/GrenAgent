@@ -1,3 +1,5 @@
+import { resolve, sep } from "node:path";
+
 const DANGEROUS_BASH = [
   /\brm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r|--recursive)/i,
   /\bsudo\b/i,
@@ -53,4 +55,11 @@ const MUTATING_BASH = [
 
 export function isMutatingBash(command: string): boolean {
   return MUTATING_BASH.some((re) => re.test(command));
+}
+
+/** True if `p` resolves inside `cwd`（处理相对路径、`..` 逃逸、分隔符）。用于「请求批准」越界写判定。 */
+export function isUnderCwd(p: string, cwd: string): boolean {
+  const base = resolve(cwd);
+  const target = resolve(cwd, p);
+  return target === base || target.startsWith(base.endsWith(sep) ? base : base + sep);
 }

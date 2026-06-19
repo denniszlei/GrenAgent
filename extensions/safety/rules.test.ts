@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDangerousBash, extractPath, isMutatingBash, matchProtectedPath, matchWriteAllowed, normalizePath } from "./rules.js";
+import { isDangerousBash, extractPath, isMutatingBash, isUnderCwd, matchProtectedPath, matchWriteAllowed, normalizePath } from "./rules.js";
 
 describe("isDangerousBash", () => {
   it("flags rm -rf / sudo / chmod 777", () => {
@@ -62,5 +62,21 @@ describe("isMutatingBash", () => {
     expect(isMutatingBash("ls -la")).toBe(false);
     expect(isMutatingBash("git status")).toBe(false);
     expect(isMutatingBash("grep foo src")).toBe(false);
+  });
+});
+
+describe("isUnderCwd", () => {
+  const cwd = process.platform === "win32" ? "D:\\proj" : "/proj";
+  it("true for relative paths inside cwd", () => {
+    expect(isUnderCwd("src/a.ts", cwd)).toBe(true);
+    expect(isUnderCwd("./a.ts", cwd)).toBe(true);
+    expect(isUnderCwd(".", cwd)).toBe(true);
+  });
+  it("false for paths escaping cwd via ..", () => {
+    expect(isUnderCwd("../outside.txt", cwd)).toBe(false);
+    expect(isUnderCwd("src/../../x", cwd)).toBe(false);
+  });
+  it("false for absolute paths outside cwd", () => {
+    expect(isUnderCwd(process.platform === "win32" ? "C:\\Windows\\x" : "/etc/x", cwd)).toBe(false);
   });
 });
