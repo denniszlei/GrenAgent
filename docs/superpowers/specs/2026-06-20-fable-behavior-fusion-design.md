@@ -48,13 +48,15 @@ buildSystemPrompt()           # unchanged
 | File | Source |
 |------|--------|
 | `tool-discipline.md` | Cursor + Claude grep-tool + Copilot priority |
+| `grep-strategy.md` | Claude Code grep-tool (output modes, regex, filter) |
 | `refusal.md` | Fable refusal_handling (malware etc.) |
 | `skills-first.md` | Fable computer_use/skills + Pi skills |
 | `file-workflow.md` | Fable file_creation + Cursor read-before-edit |
 | `conventions-first.md` | OpenCode core mandates |
 | `git-hygiene.md` | Codex dirty worktree + Cursor git |
 | `editing-constraints.md` | Codex auto-review editing constraints |
-| `delegation.md` | Claude Code Agent + Copilot explore |
+| `delegation.md` | Claude Code Agent + Copilot explore/manager mode |
+| `terminal-harness.md` | OpenCode CLI visibility, bash, risky-action gates |
 | `knowledge-search-triggers.md` | Fable knowledge_cutoff triggers |
 
 ### Tier-3 (summaries / sub-agent bodies)

@@ -15,13 +15,20 @@ const TIER1 = [
   "autonomy",
 ] as const;
 
-const TIER2_P0 = ["tool-discipline", "refusal", "skills-first", "file-workflow"] as const;
+const TIER2_P0 = [
+  "tool-discipline",
+  "grep-strategy",
+  "refusal",
+  "skills-first",
+  "file-workflow",
+] as const;
 
 const TIER2_P1 = [
   "conventions-first",
   "git-hygiene",
   "editing-constraints",
   "delegation",
+  "terminal-harness",
   "knowledge-search-triggers",
 ] as const;
 
@@ -33,6 +40,7 @@ const TIER3_SUMMARY_LINES = [
   "Code citations: use startLine:endLine:filepath for existing code (see citing-code reference).",
   "Frontend (greenfield): intentional typography/color/motion; avoid generic AI layouts; respect existing design systems.",
   "Review requests: findings first by severity with file:line refs; brief summary only after issues.",
+  "Grep: files_with_matches to locate, content to read, count to gauge; filter with glob/type; prefer tool over bash rg.",
 ] as const;
 
 function readModule(subdir: string, name: string): string {

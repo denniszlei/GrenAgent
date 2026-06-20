@@ -12,6 +12,8 @@ describe("buildFableBehaviorPrompt", () => {
   it("includes tier2 when enabled", () => {
     const p = buildFableBehaviorPrompt({ tier2: true, tier3Guidelines: false });
     expect(p).toContain("Tool discipline");
+    expect(p).toContain("Grep and glob strategy");
+    expect(p).toContain("Terminal and sidecar harness");
     expect(p).toContain("Conventions first");
   });
 
