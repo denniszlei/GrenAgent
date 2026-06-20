@@ -4,6 +4,7 @@ import { useAgentStore } from '../../stores/AgentStoreContext';
 import { useThrottledValue } from '../../hooks/useThrottledValue';
 import { groupMessages } from './groupMessages';
 import { ChatMessageItems } from './ChatMessageItems';
+import { InlineQuestionCard } from './InlineQuestionCard';
 import { PreparingIndicator } from './PreparingIndicator';
 
 const styles = createStaticStyles(({ css }) => ({
@@ -79,6 +80,7 @@ export function ChatListView() {
       <div ref={listRef} className={styles.list}>
         <ChatMessageItems messages={display} lazy />
         {showPreparing ? <PreparingIndicator /> : null}
+        <InlineQuestionCard />
       </div>
     </div>
   );
