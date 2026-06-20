@@ -3,7 +3,8 @@ import { App } from 'antd';
 import { pi } from '../../lib/pi';
 import type { ImageAttachment } from '../chat/input/ChatInputContext';
 import { useAgentStoreContext } from '../../stores/AgentStoreContext';
-import { CUSTOM_OPTION_ID, QuestionSelector } from '../../components/QuestionSelector';
+import { QuestionSelector } from '../../components/QuestionSelector';
+import { formatAnswers } from '../../components/QuestionSelector/answers';
 
 interface QuestionOption {
   id: string;
@@ -61,39 +62,7 @@ export function parseQuestions(content: string): QuestionsData | null {
   return null;
 }
 
-function formatChoiceLabels(
-  q: QuestionSpec,
-  ids: string[],
-  customTexts?: Record<string, string>,
-): string[] {
-  return ids
-    .map((oid) => {
-      if (oid === CUSTOM_OPTION_ID) {
-        const t = customTexts?.[q.id]?.trim();
-        return t ? `其他：${t}` : '其他';
-      }
-      return q.options.find((o) => o.id === oid)?.label;
-    })
-    .filter((x): x is string => Boolean(x));
-}
-
-/** 把用户的选择拼成人类可读、AI 可解析的回传文本。 */
-export function formatAnswers(
-  data: QuestionsData,
-  selected: Record<string, string[]>,
-  customTexts?: Record<string, string>,
-  extraNote?: string,
-  imageCount?: number,
-): string {
-  const lines = data.questions.map((q, i) => {
-    const labels = formatChoiceLabels(q, selected[q.id] ?? [], customTexts);
-    return `${i + 1}. ${q.title}：${labels.length > 0 ? labels.join('、') : '(未选)'}`;
-  });
-  const note = extraNote?.trim();
-  if (note) lines.push(`补充说明：${note}`);
-  if (imageCount && imageCount > 0) lines.push(`补充图片：${imageCount} 张（见消息附件）`);
-  return `[我的选择]\n${lines.join('\n')}`;
-}
+export { formatAnswers };
 
 /**
  * 对话流内的「提问卡」：`ask_user` 产出 agent-questions 消息，支持单选/多选、自定义选项、补充说明（可贴图）。
