@@ -11,6 +11,7 @@ import type { PromptImage } from './input/ChatInputContext';
 import { pi } from '../../lib/pi';
 import { isUnder, pathsEquivalent } from '../../lib/pathUtils';
 import { syncSidebarOnSend } from '../../lib/sidebarSessionSync';
+import { markScratchUsed } from '../../lib/startupConversation';
 import { useSessionStore } from '../../store/session';
 import { useAgentStoreContext } from '../../stores/AgentStoreContext';
 import { commandLanes } from '../../lib/commandLanes';
@@ -166,6 +167,8 @@ export function ChatView() {
         });
       }
       st.clearDraftConversation(workspace);
+      // 该空白对话已被使用（已落盘会话）→ 清除复用记忆，下次「新建对话」改为新建而非复用它。
+      markScratchUsed(workspace);
     };
 
     try {

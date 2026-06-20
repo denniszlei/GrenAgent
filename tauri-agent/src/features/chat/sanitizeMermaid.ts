@@ -23,9 +23,43 @@ function quoteLabel(label: string): string {
   return `"${label.replace(/"/g, '&quot;')}"`;
 }
 
-// 输入：单个 mermaid 图的源码（不含 ``` 围栏）。返回：边标签已加引号的安全版本。
+// 节点标签里出现「裸双引号」会让 mermaid 词法器进入字符串态、解析中断（报 got 'STR'），
+// 例：OVERVIEW[但不提供"一键安装"等功能]。修法：把含 " 的标签整体用双引号包裹、内部 " 转 &quot;，
+// 使其成为合法的「带引号标签」。含 " 才动；已是干净带引号标签保持原样。
+function quoteNodeLabel(content: string): string | null {
+  if (!content.includes('"')) return null;
+  const wrapped = /^"([\s\S]*)"$/.exec(content);
+  if (wrapped && !wrapped[1].includes('"')) return null; // 已是干净的带引号标签
+  const inner = wrapped ? wrapped[1] : content;
+  return `"${inner.replace(/"/g, '&quot;')}"`;
+}
+
+// 仅处理常见单层节点形状 [..] (..) {..}，且内容不含其它括号——避免误伤复合形状（如 ([..])、
+// [[..]]）或内容本就含括号、已正确转义的复杂标签（那些场景内容里有括号，正则不匹配，保持不动）。
+const NODE_LABEL_SHAPES: ReadonlyArray<{ re: RegExp; open: string; close: string }> = [
+  { re: /([A-Za-z0-9_]+)\[([^[\](){}\n]*)\]/g, open: '[', close: ']' },
+  { re: /([A-Za-z0-9_]+)\(([^[\](){}\n]*)\)/g, open: '(', close: ')' },
+  { re: /([A-Za-z0-9_]+)\{([^[\](){}\n]*)\}/g, open: '{', close: '}' },
+];
+
+function escapeNodeLabelQuotes(code: string): string {
+  let out = code;
+  for (const { re, open, close } of NODE_LABEL_SHAPES) {
+    out = out.replace(re, (full, id: string, content: string) => {
+      const fixed = quoteNodeLabel(content);
+      return fixed === null ? full : `${id}${open}${fixed}${close}`;
+    });
+  }
+  return out;
+}
+
+// 输入：单个 mermaid 图的源码（不含 ``` 围栏）。返回：边标签 + 节点标签都已加引号/转义的安全版本。
 export function sanitizeMermaidCode(code: string): string {
   const firstLine = code.split('\n').find((line) => line.trim().length > 0)?.trim() ?? '';
   if (!/^(flowchart|graph)\b/i.test(firstLine)) return code;
-  return code.replace(EDGE_LABEL, (_match, pre, gap, label) => `${pre}${gap}|${quoteLabel(label)}|`);
+  const edgesFixed = code.replace(
+    EDGE_LABEL,
+    (_match, pre, gap, label) => `${pre}${gap}|${quoteLabel(label)}|`,
+  );
+  return escapeNodeLabelQuotes(edgesFixed);
 }

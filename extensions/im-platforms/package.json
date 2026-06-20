@@ -1,0 +1,15 @@
+{
+  "name": "pi-im-platforms",
+  "version": "0.1.0",
+  "description": "Bring the Pi coding agent to WeChat via the official ilink/clawbot AI-bot interface, single-owner remote control.",
+  "type": "module",
+  "keywords": ["pi-package", "pi-extension", "im", "wechat", "ilink", "clawbot", "bot"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "peerDependencies": {},
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

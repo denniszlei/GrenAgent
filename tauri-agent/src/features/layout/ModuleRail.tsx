@@ -1,4 +1,4 @@
-import { BarChart3, Brain, FileSearch, History, Library, type LucideIcon, MessageSquare, Plug, Settings, Webhook } from 'lucide-react';
+import { BarChart3, Brain, type LucideIcon, MessageSquare, Plug, Settings, Webhook } from 'lucide-react';
 import { type ModuleId, useModuleStore } from '../../stores/moduleStore';
 
 interface ModuleDef {
@@ -8,12 +8,11 @@ interface ModuleDef {
   footer?: boolean;
 }
 
+// 仅全局（应用级）模块常驻 rail；纯项目级工具（检查点/审查/知识库）改由主列 WorkspaceTabs 承载。
+// 记忆以全局长期记忆为主体（项目记忆仅附加），故仍归全局 rail。
 const MODULES: ModuleDef[] = [
   { id: 'chat', label: '对话', Icon: MessageSquare },
-  { id: 'knowledge', label: '知识库', Icon: Library },
   { id: 'memory', label: '记忆', Icon: Brain },
-  { id: 'review', label: '审查', Icon: FileSearch },
-  { id: 'checkpoints', label: '检查点', Icon: History },
   { id: 'connections', label: '连接', Icon: Webhook },
   { id: 'extensions', label: '扩展', Icon: Plug },
   { id: 'usage', label: '用量', Icon: BarChart3 },

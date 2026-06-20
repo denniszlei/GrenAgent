@@ -4,6 +4,8 @@
 - 状态：设计已评审（待用户最终确认 → writing-plans）
 - 主题：把 CodeGraph、GitNexus、FastContext 三个库的能力以「内置」形态融入 Hermes（Pi 桌面 agent）
 
+> **2026-06-19 更新：GitNexus 引擎已移除。** 代码智能仅保留 **CodeGraph**（默认）+ `off`，引擎注册表（`engines.ts`）与设置 UI 不再含 GitNexus；旧持久化值 `CODE_INTEL=gitnexus` 在注入层与 UI 均回落 `codegraph`。下文涉及 GitNexus 的小节仅作历史记录，不代表当前实现。
+
 ## 1. 背景与目标
 
 调研了三个库：
@@ -68,7 +70,7 @@
 
 ### 配置键（settings store，与 `SKILLS_DISABLED`/`OPEN_WEBSEARCH` 同处）
 
-- `CODE_INTEL` = `codegraph` | `gitnexus` | `off`（默认 `codegraph`）——当前激活引擎。
+- `CODE_INTEL` = `codegraph` | `off`（默认 `codegraph`）——当前激活引擎。（~~`gitnexus`~~ 已移除；未知/旧值回落 `codegraph`。）
 - `CODE_INTEL_AUTO_INIT` = `1`|`0`（默认 `1`）——workspace 打开时自动建索引。
 - `CODE_INTEL_EXPLORER` = `1`|`0`（默认 `1`）——是否启用探索子代理与 `explore_context` 工具。
 - `CODEGRAPH_MCP_TOOLS`（可选）——透传给引擎，控制暴露哪些工具。
@@ -109,7 +111,9 @@
 - `open_workspace` 流程中：若 `CODE_INTEL_AUTO_INIT=1` 且无 `.codegraph/`，对捆绑二进制跑一次 `init`（非阻塞，复用 `probe-mcp` 那种一次性子命令模式）。
 - init 后由引擎自带的原生文件 watcher 增量自动同步；未初始化时 MCP server 处于其文档化的「inactive、零工具」状态，init 即激活。
 
-### GitNexus（opt-in 高级引擎）
+### GitNexus（opt-in 高级引擎）— 已移除（历史记录）
+
+> 此引擎从未落地实现，已于 2026-06-19 从注册表与 UI 移除。以下为原设计记录。
 
 - 因原生依赖（LadybugDB、tree-sitter 原生绑定 / 可选向量），默认不打包；用户在 UI 选 GitNexus 时触发首次「准备/下载」。这是严格离线的唯一例外，UI 明确提示。
 - 选 GitNexus 时其增量能力（聚类/执行流/Cypher/多仓/Wiki）随之可用；与 CodeGraph 互斥。
@@ -151,8 +155,8 @@
 
 ### 分区
 
-1. **引擎**：CodeGraph / GitNexus / Off 选择器 → 写 `CODE_INTEL`；徽标显示「内置(bundled)」或「已检测到你自配 codegraph，内置已让位」；GitNexus 未准备时显示「准备/下载」。
-2. **索引（当前 workspace）**：状态（未初始化/索引中/就绪/待同步）+ 节点/文件数（取 `codegraph status`）；按钮 `初始化`/`手动同步`/`重建`；`CODE_INTEL_AUTO_INIT` 开关。
+1. **引擎**：CodeGraph / Off 选择器 → 写 `CODE_INTEL`；徽标显示「内置(bundled)」或「已检测到你自配 codegraph，内置已让位」。（~~GitNexus~~ 已移除。）
+2. **索引（当前 workspace）**：状态（未初始化/索引中/就绪/待同步）+ 节点/文件数（取 `codegraph status`）；按钮 `初始化`/`手动同步`/`重建`。（2026-06-19：索引状态与操作已从设置页移到对话框上方 `WorkspaceBar` 的「索引」入口；设置页仅保留 `CODE_INTEL_AUTO_INIT` 开关。）
 3. **探索子代理**：`CODE_INTEL_EXPLORER` 开关 + 探索 capability 的模型选择（复用 `CapabilityModelField`）。
 4. **工具**：从 tools cache 列出引擎 MCP 工具，复用现有 per-tool 权限 UI（`mcpPolicy`）；用 `CODEGRAPH_MCP_TOOLS` 切换暴露。
 

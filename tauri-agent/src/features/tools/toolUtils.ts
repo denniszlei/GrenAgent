@@ -68,6 +68,21 @@ export function contextToolCategory(toolName: string): 'read' | 'list' {
   return 'read';
 }
 
+/**
+ * 识别「模型自主调用技能」：pi 没有专门的 skill 工具，模型是用 read 去读技能目录下的
+ * SKILL.md 来加载技能内容的（progressive disclosure）。命中时返回技能名（取 SKILL.md
+ * 所在目录名），否则 undefined。用于把这类读取从「上下文收集」折叠里拎出来、单独渲染成技能调用。
+ */
+export function skillNameFromRead(toolName: string, args: unknown): string | undefined {
+  const name = toolName.toLowerCase();
+  if (name !== 'read' && name !== 'read_file') return undefined;
+  const path = getArgString(args, 'path');
+  if (!path) return undefined;
+  const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
+  if (parts[parts.length - 1]?.toLowerCase() !== 'skill.md') return undefined;
+  return parts[parts.length - 2] || undefined;
+}
+
 export function toolMeta(toolName: string): { icon: LucideIcon } {
   const name = toolName.toLowerCase();
   if (name === 'bash' || name === 'shell' || name === 'run_terminal_cmd') {

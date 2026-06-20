@@ -1,6 +1,6 @@
 import { ActionIcon, Button, Flexbox, Input, Modal, TextArea } from '@lobehub/ui';
 import { Popconfirm } from 'antd';
-import { ArrowUp, PencilLine, Plus, Trash2 } from 'lucide-react';
+import { ArrowUp, Eraser, PencilLine, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAgentStoreContext } from '../../stores/AgentStoreContext';
 import { pi, type MemItem, type MemStats } from '../../lib/pi';
@@ -38,6 +38,8 @@ export function MemoryPanel() {
   const [draftText, setDraftText] = useState('');
   const [draftCat, setDraftCat] = useState('');
   const [saving, setSaving] = useState(false);
+  // bump 后强制 MemoryHistory 重新拉取（清空历史后刷新时间线）。
+  const [historyRefresh, setHistoryRefresh] = useState(0);
 
   const reload = useCallback(() => {
     setError(null);
@@ -62,14 +64,22 @@ export function MemoryPanel() {
     [filtered, selectedKey],
   );
 
+  // 确认交给气泡（Popconfirm），与单条删除一致；这里只负责执行清空。
   const onClear = useCallback(async () => {
     const scope = filter === 'all' ? 'all' : filter;
-    const label = scope === 'all' ? '全部' : scope === 'project' ? '项目' : '全局';
-    if (!window.confirm(`确定清空${label}记忆？`)) return;
     await pi.runCommand(workspace, `/memory clear ${scope}`);
     setSelectedKey(null);
     reload();
   }, [workspace, filter, reload]);
+
+  const clearLabel = filter === 'all' ? '全部' : filter === 'project' ? '项目' : '全局';
+
+  // 清空变更历史（memory_history），按当前筛选 scope；只清审计流水，不动记忆条目。
+  const onClearHistory = useCallback(async () => {
+    const scope = filter === 'all' ? 'all' : filter;
+    await pi.runCommand(workspace, `/memory history-clear ${scope}`);
+    setHistoryRefresh((n) => n + 1);
+  }, [workspace, filter]);
 
   const onDelete = useCallback(async () => {
     if (!selected) return;
@@ -178,13 +188,26 @@ export function MemoryPanel() {
       </Flexbox>
       <div style={{ flex: 1 }} />
       <ActionIcon data-testid="mem-add" icon={Plus} size="small" title="手动添加" onClick={() => void onAdd()} />
-      <ActionIcon
-        data-testid="mem-clear"
-        icon={Trash2}
-        size="small"
-        title="清空（按当前筛选）"
-        onClick={() => void onClear()}
-      />
+      <Popconfirm
+        cancelText="取消"
+        okButtonProps={{ 'data-testid': 'mem-clear-confirm', danger: true }}
+        okText="清空"
+        title={`确定清空${clearLabel}记忆？`}
+        onConfirm={() => void onClear()}
+      >
+        <ActionIcon data-testid="mem-clear" icon={Trash2} size="small" title="清空记忆（按当前筛选）" />
+      </Popconfirm>
+      {view === 'history' && (
+        <Popconfirm
+          cancelText="取消"
+          okButtonProps={{ 'data-testid': 'mem-history-clear-confirm', danger: true }}
+          okText="清空"
+          title={`确定清空${clearLabel}变更历史？`}
+          onConfirm={() => void onClearHistory()}
+        >
+          <ActionIcon data-testid="mem-history-clear" icon={Eraser} size="small" title="清空历史（按当前筛选）" />
+        </Popconfirm>
+      )}
     </Flexbox>
   );
 
@@ -324,8 +347,8 @@ export function MemoryPanel() {
         <ManagerLayout
           testId="memory-panel"
           header={header}
-          list={<MemoryHistory />}
-          detail={<div style={{ color: muted, fontSize: 13 }}>全量变更时间线；点条目右侧可回滚</div>}
+          list={<MemoryHistory refreshToken={historyRefresh} />}
+          detail={<div style={{ color: muted, fontSize: 13 }}>全量变更时间线；点条目右侧可回滚，或用上方「清空历史」按当前筛选清空</div>}
         />
         {editorModal}
       </>

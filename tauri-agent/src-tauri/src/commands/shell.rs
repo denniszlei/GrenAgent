@@ -17,7 +17,7 @@ pub struct ShellManager {
 }
 
 struct ShellSession {
-    _master: Box<dyn portable_pty::MasterPty + Send>,
+    master: Box<dyn portable_pty::MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     child: Box<dyn portable_pty::Child + Send>,
 }
@@ -114,16 +114,39 @@ pub async fn shell_start(
 
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
+        // 跨 read 边界的不完整 UTF-8 尾字节缓存：方块/画线/中文都是多字节，
+        // 若一个字符被 4096 边界切断，直接 from_utf8_lossy 会把残缺字节替成 �（花屏）。
+        // 保留尾部不完整序列，拼到下一次 read 再解码。
+        let mut carry: Vec<u8> = Vec::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let _ =
-                        tauri::async_runtime::block_on(emit_shell_output(&win, sid.clone(), chunk));
+                    carry.extend_from_slice(&buf[..n]);
+                    // 找到最后一个完整 UTF-8 字符的结束位置，只发送完整部分。
+                    let valid_up_to = match std::str::from_utf8(&carry) {
+                        Ok(_) => carry.len(),
+                        Err(e) => e.valid_up_to(),
+                    };
+                    if valid_up_to > 0 {
+                        // valid_up_to 处一定是字符边界，可安全无损解码。
+                        let chunk =
+                            String::from_utf8_lossy(&carry[..valid_up_to]).into_owned();
+                        carry.drain(..valid_up_to);
+                        let _ = tauri::async_runtime::block_on(emit_shell_output(
+                            &win,
+                            sid.clone(),
+                            chunk,
+                        ));
+                    }
                 }
                 Err(_) => break,
             }
+        }
+        // 流结束：刷出残留字节（此时不完整就只能 lossy）。
+        if !carry.is_empty() {
+            let chunk = String::from_utf8_lossy(&carry).into_owned();
+            let _ = tauri::async_runtime::block_on(emit_shell_output(&win, sid.clone(), chunk));
         }
         let _ = win.emit(
             "shell-output",
@@ -137,7 +160,7 @@ pub async fn shell_start(
     mgr.sessions.lock().await.insert(
         session_id.clone(),
         ShellSession {
-            _master: master,
+            master,
             writer,
             child,
         },
@@ -171,7 +194,22 @@ pub async fn shell_resize(
     cols: u16,
     mgr: State<'_, Arc<ShellManager>>,
 ) -> Result<(), String> {
-    let _ = (session_id, rows, cols, mgr);
+    if rows == 0 || cols == 0 {
+        return Ok(());
+    }
+    let sessions = mgr.sessions.lock().await;
+    let session = sessions
+        .get(&session_id)
+        .ok_or_else(|| "shell session not found".to_string())?;
+    session
+        .master
+        .resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| format!("shell resize failed: {e}"))?;
     Ok(())
 }
 

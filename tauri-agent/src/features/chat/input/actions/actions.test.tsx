@@ -59,7 +59,6 @@ vi.mock('../../../../stores/AgentStoreContext', () => ({
   }),
 }));
 
-import ThinkingAction from './ThinkingAction';
 import CompactAction from './CompactAction';
 import NewSessionAction from './NewSessionAction';
 import { ChatInputProvider, type ChatInputContextValue } from '../ChatInputContext';
@@ -91,16 +90,6 @@ afterEach(() => {
 });
 
 describe('chat input actions', () => {
-  it('ThinkingAction sets thinking level when a menu item is chosen', async () => {
-    render(<ThinkingAction />);
-    await waitFor(() => {
-      expect(piMock.getState).toHaveBeenCalled();
-    });
-    // 推理模型加载完成后才渲染档位项（非推理模型整个选择器隐藏）。
-    fireEvent.click(await screen.findByText('high'));
-    expect(piMock.setThinkingLevel).toHaveBeenCalledWith('/ws', 'high');
-  });
-
   it('CompactAction triggers compact with workspace', () => {
     render(<CompactAction />);
     fireEvent.click(screen.getByRole('button'));

@@ -24,8 +24,8 @@ vi.mock('../../lib/skillsIo', () => ({ listSkills, createSkill, deleteSkill }));
 import { ThemeProvider } from '@lobehub/ui';
 import { ExtensionsPanel } from './ExtensionsPanel';
 
-// jsdom 下 Modal/Switch 重渲染较慢，放宽超时避免误判。
-vi.setConfig({ testTimeout: 20000 });
+// jsdom 下 Modal/Switch/Popconfirm 重渲染较慢（本机 transform/import 开销大），放宽超时避免误判。
+vi.setConfig({ testTimeout: 45000 });
 
 const skill = (name: string, description = ''): SkillInfo => ({
   name,
@@ -66,6 +66,29 @@ describe('ExtensionsPanel', () => {
     expect(screen.getByTestId('skill-toggle-openspec-propose').getAttribute('aria-checked')).toBe('false');
   });
 
+  it('rescans the skills dir when the refresh button is clicked', async () => {
+    getSettings.mockResolvedValueOnce({});
+    // 初次挂载只发现一个技能。
+    listSkills.mockResolvedValueOnce([skill('first-skill')]);
+    render(
+      <ThemeProvider>
+        <ExtensionsPanel />
+      </ThemeProvider>,
+    );
+    fireEvent.click(screen.getByTestId('ext-tab-skills'));
+    await waitFor(() => expect(screen.getByTestId('skill-first-skill')).toBeTruthy());
+
+    // 模拟用户手动往 ~/.agents/skills 拷了一个目录，点「刷新」重新扫描即可看到。
+    listSkills.mockResolvedValueOnce([skill('first-skill'), skill('added-skill')]);
+    fireEvent.click(screen.getByTestId('skill-refresh'));
+    await waitFor(() => expect(screen.getByTestId('skill-added-skill')).toBeTruthy());
+
+    // 刷新会 bump reload rev → 防抖自动落盘，让 sidecar 热重载新技能（不重启）。
+    await waitFor(() => expect(setSettings).toHaveBeenCalled(), { timeout: 3000 });
+    expect(closeWorkspace).not.toHaveBeenCalled();
+    expect(openWorkspace).not.toHaveBeenCalled();
+  });
+
   it('treats a legacy skill: prefixed disabled entry as the bare skill (off)', async () => {
     getSettings.mockResolvedValueOnce({ SKILLS_DISABLED: 'skill:caveman' });
     listSkills.mockResolvedValueOnce([skill('caveman')]);
@@ -76,28 +99,24 @@ describe('ExtensionsPanel', () => {
     expect(screen.getByTestId('skill-toggle-caveman').getAttribute('aria-checked')).toBe('false');
   });
 
-  it('hides the restart button until a change, then persists and restarts the sidecar', async () => {
+  it('persists skill changes hot without showing a restart button', async () => {
     getSettings.mockResolvedValueOnce({});
     listSkills.mockResolvedValueOnce([skill('demo-skill')]);
     render(<ExtensionsPanel />);
-    // 无改动时不显示「重启生效」按钮。
+    // 热更新后不再有「重启生效」按钮。
     expect(screen.queryByTestId('ext-restart')).toBeNull();
 
     fireEvent.click(screen.getByTestId('ext-tab-skills'));
     await waitFor(() => expect(screen.getByTestId('skill-toggle-demo-skill')).toBeTruthy());
 
-    // 拨动开关后出现「重启生效」按钮。
+    // 拨动开关：改动自动落盘（写 runtime-settings.json），不出现重启按钮。
     fireEvent.click(screen.getByTestId('skill-toggle-demo-skill'));
-    fireEvent.click(screen.getByTestId('ext-restart'));
+    expect(screen.queryByTestId('ext-restart')).toBeNull();
 
-    // 点击后：持久化 + 重启 sidecar（close + open）。
-    await waitFor(() => {
-      expect(setSettings).toHaveBeenCalled();
-      expect(closeWorkspace).toHaveBeenCalled();
-      expect(openWorkspace).toHaveBeenCalled();
-    });
-    // 重启完成后按钮再次隐藏。
-    await waitFor(() => expect(screen.queryByTestId('ext-restart')).toBeNull());
+    // 防抖自动保存 → setSettings；不重启 sidecar（不 close/open workspace）。
+    await waitFor(() => expect(setSettings).toHaveBeenCalled(), { timeout: 3000 });
+    expect(closeWorkspace).not.toHaveBeenCalled();
+    expect(openWorkspace).not.toHaveBeenCalled();
   });
 
   it('creates a skill via the add modal', async () => {

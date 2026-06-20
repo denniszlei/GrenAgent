@@ -10,8 +10,8 @@ import { loadFiles } from './useFileMention';
 import type { ImageAttachment } from '../ChatInputContext';
 import type { PastedText } from './types';
 
-/** 当前拖放是文件（原生路径）还是应用内选区文本——用于输入区提示文案。 */
-export type DragKind = 'file' | 'text';
+/** 当前拖放的内容类型——用于输入区提示文案。 */
+export type DragKind = 'file' | 'text' | 'image';
 
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg']);
 
@@ -63,10 +63,50 @@ function decodeText(base64: string): string {
   return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
 }
 
+function imageNameFromSrc(src: string): string {
+  const dataMime = /^data:(image\/[a-z0-9.+-]+)/i.exec(src)?.[1];
+  if (dataMime) return `image.${dataMime.split('/')[1].replace('jpeg', 'jpg').replace('svg+xml', 'svg')}`;
+  if (!src.startsWith('blob:')) {
+    const base = src.split(/[?#]/)[0].split('/').pop();
+    if (base && base.includes('.')) return decodeURIComponent(base);
+  }
+  return 'image.png';
+}
+
+/** 从 dragstart 的目标里找出被拖的图片元素（兼容 antd Image 的遮罩 / 包裹容器场景）。 */
+function pickDraggedImage(target: EventTarget | null): { src: string; name: string } | null {
+  const el = target instanceof HTMLElement ? target : null;
+  if (!el) return null;
+  const img =
+    el instanceof HTMLImageElement
+      ? el
+      : ((el.closest?.('img') as HTMLImageElement | null) ??
+        (el.querySelector?.('img') as HTMLImageElement | null) ??
+        (el.closest?.('.ant-image')?.querySelector('img') as HTMLImageElement | null) ??
+        null);
+  const src = img?.currentSrc || img?.src || '';
+  if (!src) return null;
+  return { src, name: img?.alt?.trim() || imageNameFromSrc(src) };
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result);
+      const comma = url.indexOf(',');
+      resolve(comma >= 0 ? url.slice(comma + 1) : url);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
 /**
  * 监听 Tauri 的原生文件拖放（默认 dragDropEnabled，给到的是绝对路径）。
  * 落在输入区内才处理：工作区内图片读成附件，文本文件读内容作为「文件块」chip（像粘贴长文本，
  * 发送时展开拼进消息），目录 / 工作区外 / 二进制 / 读失败回退为 `@` 引用 pill。
+ * 应用内拖拽（从消息里拖选区文本 / 拖图片）也在此处理：dragstart 截存内容，drop 时插入。
  */
 export function useTauriFileDrop({ editor, workspace, zoneRef, onImages, onPastedText }: Options) {
   const [dragOver, setDragOver] = useState(false);
@@ -75,17 +115,37 @@ export function useTauriFileDrop({ editor, workspace, zoneRef, onImages, onPaste
   // drop 事件只回传文件路径不含文本。故在 dragstart 时把选区文本截存，Tauri 'drop' 落在输入区且
   // 无文件路径时再插入——让「从消息里拖一段文字进输入框」可用。
   const dragTextRef = useRef('');
+  // 应用内拖拽的图片（消息里的生成图等）：dragstart 截存其 src，drop 落在输入区且无文件路径时转成附件。
+  const dragImageRef = useRef<{ src: string; name: string } | null>(null);
 
   useEffect(() => {
-    const onDragStart = () => {
-      dragTextRef.current = window.getSelection()?.toString() ?? '';
+    let clearTimer: ReturnType<typeof setTimeout> | undefined;
+    const onDragStart = (e: DragEvent) => {
+      if (clearTimer) clearTimeout(clearTimer);
+      const image = pickDraggedImage(e.target);
+      if (image) {
+        // 拖的是图片（如消息里的生成图）：优先按图片处理，忽略遗留选区。
+        dragImageRef.current = image;
+        dragTextRef.current = '';
+      } else {
+        dragImageRef.current = null;
+        dragTextRef.current = window.getSelection()?.toString() ?? '';
+      }
     };
+    // DOM 的 dragend 与 Tauri 的 'drop' 是两条独立管道：松手时 dragend（同步）通常先于经 IPC
+    // 来的 Tauri drop 触发。若在此立即清空暂存内容，drop 读到的就是空、插不进输入框。
+    // 故延后清空，让 drop 先取走（drop 用完会自行清空）；拖拽取消（无 drop）时这里兜底清理。
     const onDragEnd = () => {
-      dragTextRef.current = '';
+      if (clearTimer) clearTimeout(clearTimer);
+      clearTimer = setTimeout(() => {
+        dragTextRef.current = '';
+        dragImageRef.current = null;
+      }, 300);
     };
     document.addEventListener('dragstart', onDragStart, true);
     document.addEventListener('dragend', onDragEnd, true);
     return () => {
+      if (clearTimer) clearTimeout(clearTimer);
       document.removeEventListener('dragstart', onDragStart, true);
       document.removeEventListener('dragend', onDragEnd, true);
     };
@@ -116,6 +176,21 @@ export function useTauriFileDrop({ editor, workspace, zoneRef, onImages, onPaste
         const selection = $getSelection();
         if ($isRangeSelection(selection)) selection.insertText(text);
       });
+    };
+
+    // 应用内拖入的图片（消息里的生成图等）：data URL 直接解析，blob/asset URL 用 fetch 取字节，转成附件。
+    const insertDroppedImage = async (image: { src: string; name: string }) => {
+      try {
+        const dataUrl = /^data:([^;]+);base64,(.*)$/s.exec(image.src);
+        if (dataUrl) {
+          onImages([binaryToImageAttachment(image.name, dataUrl[1], dataUrl[2])]);
+          return;
+        }
+        const blob = await (await fetch(image.src)).blob();
+        onImages([binaryToImageAttachment(image.name, blob.type || 'image/png', await blobToBase64(blob))]);
+      } catch {
+        /* 读取失败：忽略 */
+      }
     };
 
     const insertMention = (rel: string | null, normPath: string, name: string, isDirectory: boolean) => {
@@ -200,8 +275,8 @@ export function useTauriFileDrop({ editor, workspace, zoneRef, onImages, onPaste
         if (payload.type === 'over') {
           const over = isOver(payload.position);
           setDragOver(over);
-          // dragstart 已截下选区文本 → 本次是「拖文字」，提示文案随之切换。
-          if (over) setDragKind(dragTextRef.current ? 'text' : 'file');
+          // dragstart 已截下选区文本 / 图片 → 据此切换提示文案。
+          if (over) setDragKind(dragTextRef.current ? 'text' : dragImageRef.current ? 'image' : 'file');
           return;
         }
         if (payload.type === 'leave') {
@@ -212,11 +287,14 @@ export function useTauriFileDrop({ editor, workspace, zoneRef, onImages, onPaste
           const over = isOver(payload.position);
           setDragOver(false);
           const text = dragTextRef.current;
+          const image = dragImageRef.current;
           dragTextRef.current = '';
+          dragImageRef.current = null;
           if (!over) return;
-          // 无文件路径但有选区文本 → 应用内拖文字，插入文本；否则按文件拖放处理。
+          // 应用内拖拽：有选区文本插文本，有图片插图片；否则按文件拖放（含原生文件）处理。
           if (payload.paths.length === 0) {
             if (text) insertDroppedText(text);
+            else if (image) void insertDroppedImage(image);
             return;
           }
           void handleDrop(payload.paths);

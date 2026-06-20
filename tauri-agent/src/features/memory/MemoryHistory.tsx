@@ -18,9 +18,11 @@ const opColor: Record<string, string> = {
 interface MemoryHistoryProps {
   /** 仅看某条记忆的版本史；不传＝全量时间线。 */
   memoryId?: string;
+  /** 外部 bump 此值可强制重新拉取（如清空历史后刷新）。 */
+  refreshToken?: number;
 }
 
-export function MemoryHistory({ memoryId }: MemoryHistoryProps) {
+export function MemoryHistory({ memoryId, refreshToken }: MemoryHistoryProps) {
   const { workspace } = useAgentStoreContext();
   const [rows, setRows] = useState<MemHistoryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -33,12 +35,13 @@ export function MemoryHistory({ memoryId }: MemoryHistoryProps) {
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, [workspace, memoryId]);
 
-  useEffect(() => reload(), [reload]);
+  useEffect(() => reload(), [reload, refreshToken]);
 
   const onRollback = useCallback(
-    async (historyId: number) => {
+    async (historyId: number, scope: string) => {
       if (!window.confirm(`回滚变更 #${historyId}？`)) return;
-      await pi.runCommand(workspace, `/memory rollback ${historyId}`);
+      // 必须带 scope：项目/全局两库 historyId 会撞号，不带 scope 会回滚错库（表现为「点了没反应」）。
+      await pi.runCommand(workspace, `/memory rollback ${historyId} ${scope}`);
       reload();
     },
     [workspace, reload],
@@ -78,7 +81,7 @@ export function MemoryHistory({ memoryId }: MemoryHistoryProps) {
             icon={Undo2}
             size="small"
             title="回滚此次变更"
-            onClick={() => void onRollback(r.historyId)}
+            onClick={() => void onRollback(r.historyId, r.scope)}
           />
         </Flexbox>
       ))}

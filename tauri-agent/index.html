@@ -28,6 +28,8 @@
         border-top-color: #4c8bf5;
         border-radius: 50%;
         animation: boot-spin 0.8s linear infinite;
+        /* 事件穿透到带 drag-region 的 #boot-splash，让 spinner 区域也能拖动窗口。 */
+        pointer-events: none;
       }
       @keyframes boot-spin {
         to {
@@ -39,7 +41,8 @@
 
   <body>
     <div id="root">
-      <div id="boot-splash"><div class="ring"></div></div>
+      <!-- data-tauri-drag-region：JS 解析期的首屏也能拖动窗口（无系统标题栏）。 -->
+      <div id="boot-splash" data-tauri-drag-region><div class="ring"></div></div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -13,6 +13,15 @@ const tool = (id: string, toolName: string): TimelineSegment => ({
   result: {},
   status: 'done',
 });
+const skillRead = (id: string): TimelineSegment => ({
+  kind: 'tool',
+  id,
+  toolCallId: `c-${id}`,
+  toolName: 'read',
+  args: { path: `/home/u/.agents/skills/${id}/SKILL.md` },
+  result: {},
+  status: 'done',
+});
 
 describe('buildTurnRows', () => {
   it('collapses 2+ consecutive read/list tools, keeps position', () => {
@@ -46,6 +55,20 @@ describe('buildTurnRows', () => {
     ]);
     expect(rows).toHaveLength(5);
     expect(rows.every((r) => r.kind === 'segment')).toBe(true);
+  });
+
+  it('SKILL.md 读取(调用技能)不并入折叠，单独成行并打断 read 连读', () => {
+    const rows = buildTurnRows([
+      tool('r1', 'read'),
+      tool('r2', 'read'),
+      skillRead('myskill'),
+      tool('r3', 'read'),
+      tool('r4', 'read'),
+    ]);
+    // read,read -> 折叠；技能调用独立；read,read -> 折叠
+    expect(rows.map((r) => r.kind)).toEqual(['context', 'segment', 'context']);
+    const mid = rows[1];
+    expect(mid.kind === 'segment' && mid.segment.kind === 'tool' && mid.segment.id).toBe('myskill');
   });
 
   it('search tools break a read run instead of merging into it', () => {

@@ -13,6 +13,8 @@ export interface IncomingMessage {
 
 export interface GatewayOptions {
   port: number;
+  /** Bind address. Defaults to 127.0.0.1 (loopback) so the gateway isn't exposed by accident. */
+  host?: string;
   token?: string;
   onMessage: (msg: IncomingMessage) => void;
 }
@@ -69,7 +71,7 @@ export function startGateway(opts: GatewayOptions): Promise<GatewayHandle> {
     });
 
     server.on("error", reject);
-    server.listen(opts.port, () => {
+    server.listen(opts.port, opts.host ?? "127.0.0.1", () => {
       const addr = server.address();
       const port = typeof addr === "object" && addr ? addr.port : opts.port;
       resolve({

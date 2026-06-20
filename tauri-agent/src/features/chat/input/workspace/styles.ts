@@ -66,9 +66,10 @@ export const wsStyles = createStaticStyles(({ css }) => ({
     font-family: ${cssVar.fontFamilyCode};
     font-size: 11px;
     font-weight: 600;
-    color: ${cssVar.colorPrimary};
+    /* 中性计数色：colorPrimaryBg 在暗色模式下偏闷、与 chip 撞色不好看，改用中性 fill + 次级文字色，明暗两套都干净。 */
+    color: ${cssVar.colorTextSecondary};
 
-    background: ${cssVar.colorPrimaryBg};
+    background: ${cssVar.colorFillSecondary};
   `,
   badgeRun: css`
     color: ${cssVar.colorSuccess};

@@ -103,6 +103,11 @@ describe("injectDefaultServers · code-intel", () => {
     expect(injectDefaultServers([], { ...base, CODE_INTEL: "off" }, "linux").find((s) => s.name === "codegraph")).toBeUndefined();
   });
 
+  it("falls back to codegraph for a removed/unknown engine (e.g. legacy gitnexus)", () => {
+    const cg = injectDefaultServers([], { ...base, CODE_INTEL: "gitnexus" }, "linux").find((s) => s.name === "codegraph");
+    expect(cg?.command).toBe("/pkg/codegraph/bin/codegraph");
+  });
+
   it("yields when the user already configured a same-named server", () => {
     const user = parseMcpServers('{"mcpServers":{"codegraph":{"command":"my-cg","args":["x"]}}}');
     const out = injectDefaultServers(user, { ...base, CODE_INTEL: "codegraph" }, "linux");

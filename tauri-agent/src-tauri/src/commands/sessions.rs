@@ -150,6 +150,17 @@ pub fn resolve_workspace_dir(workspace: &str) -> Result<std::path::PathBuf, Stri
     } else {
         base.join(workspace)
     };
+    // 兜底：scratch 对话目录（~/.pi/agent/works/<uuid>）可能被 prune / 手动清理删除，而前端仍可能
+    // 复用「记住的」该 cwd（canReuseScratch 不校验目录是否存在）。若缺失目录位于 app 管理的 works
+    // 根下，自动重建（空 scratch、重建安全），避免 "invalid workspace cwd"；项目目录缺失仍如实报错。
+    if !p.exists() {
+        if let Some(home) = dirs::home_dir() {
+            let works = home.join(".pi").join("agent").join("works");
+            if p.starts_with(&works) {
+                let _ = std::fs::create_dir_all(&p);
+            }
+        }
+    }
     std::fs::canonicalize(&p).map_err(|e| format!("invalid workspace cwd: {e}"))
 }
 

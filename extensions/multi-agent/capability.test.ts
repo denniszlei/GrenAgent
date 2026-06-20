@@ -80,12 +80,12 @@ describe("profileToEnv", () => {
   });
   it("net=false → deny all real networking tools", () => {
     expect(profileToEnv({ net: false }).SAFETY_DENY_TOOLS).toBe(
-      "web_search,search,fetch_url,fetch_llms,fetch_github_readme,fetch_web_content,github",
+      "web_search,web_search_multi,fetch_url,fetch_llms,fetch_github_readme,fetch_web_content,github",
     );
   });
   it("tools.deny merges into deny list", () => {
     expect(profileToEnv({ net: false, tools: { deny: ["bash"] } }).SAFETY_DENY_TOOLS).toBe(
-      "web_search,search,fetch_url,fetch_llms,fetch_github_readme,fetch_web_content,github,bash",
+      "web_search,web_search_multi,fetch_url,fetch_llms,fetch_github_readme,fetch_web_content,github,bash",
     );
   });
   it("restricted fs denies bypass writers + code-exec tools", () => {

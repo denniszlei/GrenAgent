@@ -187,6 +187,26 @@ export class MemoryStore {
   }
 
   clear(): void {
+    // 审计每条删除（与 remove() 一致），让「清空」在历史里留下 DELETE 记录、可回滚恢复；
+    // 否则清空后已落盘的 ADD 历史会变成「孤儿」（memories 为空但历史仍显示 ADD），且无法回滚。
+    const now = Date.now();
+    const rows = this.database
+      .prepare("SELECT id, text, category FROM memories")
+      .all() as Array<{ id: string; text: string; category: string | null }>;
+    for (const m of rows) {
+      this.recordHistory({
+        memoryId: m.id,
+        op: "DELETE",
+        oldText: m.text,
+        newText: null,
+        oldCategory: m.category,
+        newCategory: null,
+        reason: "clear",
+        model: null,
+        version: this.currentVersion(m.id) + 1,
+        createdAt: now,
+      });
+    }
     this.database.exec("DELETE FROM memories;");
     this.vecCache = null;
   }
@@ -195,6 +215,12 @@ export class MemoryStore {
     const info = this.database.prepare("DELETE FROM memories WHERE id = ?").run(id);
     this.cacheDelete(id);
     return Number(info.changes) > 0;
+  }
+
+  /** 清空变更历史流水（memory_history）。只动审计表，不影响 memories；返回删除条数。 */
+  clearHistory(): number {
+    const info = this.database.prepare("DELETE FROM memory_history").run();
+    return Number(info.changes);
   }
 
   list(limit = 50): Memory[] {
@@ -354,24 +380,23 @@ export class MemoryStore {
     const cur = this.getById(row.memoryId);
     const now = Date.now();
     if (row.oldText === null) {
-      // Undo an ADD → remove (if still present).
-      if (cur) {
-        const version = this.currentVersion(row.memoryId) + 1;
-        this.database.prepare("DELETE FROM memories WHERE id = ?").run(row.memoryId);
-        this.cacheDelete(row.memoryId);
-        this.recordHistory({
-          memoryId: row.memoryId,
-          op: "ROLLBACK",
-          oldText: cur.text,
-          newText: null,
-          oldCategory: cur.category,
-          newCategory: null,
-          reason: `rollback #${historyId}`,
-          model: null,
-          version,
-          createdAt: now,
-        });
-      }
+      // Undo an ADD → remove the memory. 已不存在则无可回滚：返回 undefined，避免误报「已回滚」。
+      if (!cur) return undefined;
+      const version = this.currentVersion(row.memoryId) + 1;
+      this.database.prepare("DELETE FROM memories WHERE id = ?").run(row.memoryId);
+      this.cacheDelete(row.memoryId);
+      this.recordHistory({
+        memoryId: row.memoryId,
+        op: "ROLLBACK",
+        oldText: cur.text,
+        newText: null,
+        oldCategory: cur.category,
+        newCategory: null,
+        reason: `rollback #${historyId}`,
+        model: null,
+        version,
+        createdAt: now,
+      });
       return { id: row.memoryId };
     }
     const clean = row.oldText.trim();

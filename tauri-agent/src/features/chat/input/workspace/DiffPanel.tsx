@@ -1,12 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Icon, Popover } from '@lobehub/ui';
+import { Modal } from '@lobehub/ui';
 import { createStaticStyles, cssVar, cx } from 'antd-style';
-import { FileDiff } from 'lucide-react';
 import { VList } from 'virtua';
 import { pi, type GitFileStatus } from '../../../../lib/pi';
-import { useAgentStoreContext } from '../../../../stores/AgentStoreContext';
 import { useGitInfo, useGitStore } from '../../../../stores/gitStore';
-import { wsStyles as s } from './styles';
 
 const STATUS_META: Record<string, { tag: string; color: string; bg: string }> = {
   modified: { tag: 'M', color: cssVar.colorWarning, bg: cssVar.colorWarningBg },
@@ -17,11 +14,10 @@ const STATUS_META: Record<string, { tag: string; color: string; bg: string }> = 
 const d = createStaticStyles(({ css }) => ({
   wrap: css`
     display: grid;
-    grid-template-columns: 168px 1fr;
+    grid-template-columns: 200px 1fr;
 
-    width: 560px;
-    height: 320px;
-    margin: -4px;
+    width: 100%;
+    height: 460px;
   `,
   files: css`
     scrollbar-width: thin;
@@ -184,31 +180,36 @@ function DiffView({ workspace }: { workspace: string }) {
   );
 }
 
-/** 「N 改动」chip：点开看改动文件列表 + 行级 diff。无改动时不渲染。 */
-export function ChangesButton() {
-  const { workspace } = useAgentStoreContext();
+/**
+ * 改动模态框：文件列表 + 行级 diff。受控组件，由分支气泡里的「查看改动」入口开关
+ * （改动数徽标已并入分支 chip，不再单独占一个功能栏按钮）。打开时刷新 git 概况。
+ */
+export function ChangesModal({
+  workspace,
+  open,
+  onClose,
+}: {
+  workspace: string;
+  open: boolean;
+  onClose: () => void;
+}) {
   const git = useGitInfo(workspace);
-  const [open, setOpen] = useState(false);
-
   const n = git.changes.length;
-  if (n === 0) return null;
+
+  useEffect(() => {
+    if (open) void useGitStore.getState().load(workspace, true);
+  }, [open, workspace]);
 
   return (
-    <Popover
-      arrow={false}
-      content={<DiffView workspace={workspace} />}
+    <Modal
+      data-testid="git-changes-modal"
+      footer={null}
       open={open}
-      placement="topLeft"
-      trigger="click"
-      onOpenChange={(v) => {
-        setOpen(v);
-        if (v) void useGitStore.getState().load(workspace, true);
-      }}
+      title={`改动（${n}）`}
+      width={860}
+      onCancel={onClose}
     >
-      <span className={s.chip}>
-        <Icon icon={FileDiff} size={14} />
-        <span className={s.muted}>{n} 改动</span>
-      </span>
-    </Popover>
+      {open ? <DiffView workspace={workspace} /> : null}
+    </Modal>
   );
 }

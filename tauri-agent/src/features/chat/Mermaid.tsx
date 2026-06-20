@@ -19,6 +19,7 @@ import { pi } from '../../lib/pi';
 import { useOptionalAgentStoreContext } from '../../stores/AgentStoreContext';
 import { autoFixMermaid } from './mermaidAutofix';
 import { sanitizeMermaidCode } from './sanitizeMermaid';
+import { useMermaidFixStore } from '../../stores/mermaidFixStore';
 
 type MermaidApi = typeof import('mermaid').default;
 
@@ -150,7 +151,7 @@ async function renderWithAutofix(
   mermaid: MermaidApi,
   raw: string,
   host?: Element,
-): Promise<{ svg: string; autofixed: boolean }> {
+): Promise<{ svg: string; autofixed: boolean; code: string }> {
   let cur = raw;
   let lastErr: unknown;
   for (let i = 0; i < 4; i++) {
@@ -158,7 +159,7 @@ async function renderWithAutofix(
       await mermaid.parse(cur);
       renderSeq += 1;
       const { svg } = await mermaid.render(`mermaid-${renderSeq.toString(36)}`, cur, host);
-      return { svg, autofixed: cur !== raw };
+      return { svg, autofixed: cur !== raw, code: cur };
     } catch (e) {
       lastErr = e;
       const next = autoFixMermaid(cur);
@@ -287,6 +288,15 @@ const styles = createStaticStyles(({ css }) => ({
     white-space: pre-wrap;
     word-break: break-word;
   `,
+  aiFixFeedback: css`
+    padding: 6px 10px;
+    border-block-start: 1px solid ${cssVar.colorBorderSecondary};
+    font-size: 12px;
+    line-height: 1.5;
+    color: ${cssVar.colorError};
+    white-space: pre-wrap;
+    word-break: break-word;
+  `,
   fixingIcon: css`
     display: inline-flex;
     align-items: center;
@@ -319,7 +329,6 @@ export const Mermaid = memo(({ code, streaming }: { code: string; streaming?: bo
   // 复制成功后短暂显示的提示文案（''=无）；按钮图标据此在 Check/Copy 间切换。
   const [copiedHint, setCopiedHint] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
-  const [override, setOverride] = useState<{ base: string; code: string } | null>(null);
   const [aiFixing, setAiFixing] = useState(false);
   const [aiError, setAiError] = useState('');
   const [resizeTick, setResizeTick] = useState(0);
@@ -327,10 +336,15 @@ export const Mermaid = memo(({ code, streaming }: { code: string; streaming?: bo
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const lastWidthRef = useRef(0);
   const failedRef = useRef(false);
+  const errMsgRef = useRef('');
 
-  // AI 修复成功后用 override 覆盖渲染源；code 变化（新消息 / 流式更新）时 override 自动失效。
-  const aiFixed = override !== null && override.base === code;
-  const source = override && override.base === code ? override.code : code;
+  // 持久化修复缓存（按原始 code 存）：AI 修复与本地 autofix 的结果都写这里，切会话/重载后据此用
+  // 修复版渲染、不再重现崩坏（pi 无法原地改历史消息，故在前端渲染层兜住）。code 变即自动切到对应缓存。
+  const persistedFix = useMermaidFixStore((s) => s.fixes[code]);
+  const aiFixed = persistedFix?.ai === true;
+  const source = persistedFix?.code ?? code;
+
+  errMsgRef.current = errMsg;
 
   useEffect(() => {
     let alive = true;
@@ -349,11 +363,16 @@ export const Mermaid = memo(({ code, streaming }: { code: string; streaming?: bo
           theme: theme.isDarkMode ? 'dark' : 'neutral',
         });
         const cleaned = sanitizeMermaidCode(source);
-        const { svg: out, autofixed: fx } = await renderWithAutofix(mermaid, cleaned, host);
+        const { svg: out, autofixed: fx, code: rendered } = await renderWithAutofix(mermaid, cleaned, host);
+        if (!out.trim()) throw new Error('Mermaid 返回空 SVG');
         if (alive) {
           setSvg(out);
           setAutofixed(fx);
           failedRef.current = false;
+        }
+        // 本地 autofix 成功：把修复结果按原始 code 持久化，切会话/重载直接命中、不再重崩重修。
+        if (fx && rendered && rendered !== code) {
+          useMermaidFixStore.getState().setFix(code, rendered, false);
         }
       })
       .catch((e: unknown) => {
@@ -361,7 +380,13 @@ export const Mermaid = memo(({ code, streaming }: { code: string; streaming?: bo
           setSvg('');
           setFailed(true);
           failedRef.current = true;
-          setErrMsg(e instanceof Error ? e.message : String(e));
+          const msg = e instanceof Error ? e.message : String(e);
+          setErrMsg(msg);
+          // 已有持久修复（多为 AI 修复）却仍渲染失败：提示修复无效。
+          if (persistedFix && persistedFix.code === source) {
+            setAiError(`修复后的代码仍无法渲染：${msg.split('\n')[0]}`);
+            setErrOpen(true);
+          }
         }
       })
       .finally(() => {
@@ -370,7 +395,7 @@ export const Mermaid = memo(({ code, streaming }: { code: string; streaming?: bo
     return () => {
       alive = false;
     };
-  }, [source, theme.isDarkMode, theme.fontFamily, resizeTick]);
+  }, [code, source, persistedFix, theme.isDarkMode, theme.fontFamily, resizeTick]);
 
   // 监听容器宽度，按新宽度重绘以适配布局。三处节流避免无谓重渲：
   // 1) 仅宽度变化超阈值才重绘（过滤滚动条/字体回流抖动）；
@@ -483,19 +508,30 @@ export const Mermaid = memo(({ code, streaming }: { code: string; streaming?: bo
     if (!ctx || aiFixing) return;
     setAiFixing(true);
     setAiError('');
+    const renderError = errMsgRef.current;
     try {
-      const fixed = await pi.fixMermaid(ctx.workspace, code, errMsg);
-      if (fixed && fixed.trim()) {
-        setOverride({ base: code, code: fixed });
-      } else {
+      const fixed = await pi.fixMermaid(ctx.workspace, code, renderError);
+      const trimmed = fixed?.trim() ?? '';
+      if (!trimmed) {
         setAiError('模型未返回有效内容');
+        setErrOpen(true);
+        return;
       }
+      if (trimmed === source.trim()) {
+        setAiError('模型返回的代码与当前版本相同，未能修复');
+        setErrOpen(true);
+        return;
+      }
+      // 持久化 AI 修复结果（按原始 code），source 随之更新触发重渲染；切会话/重载也直接命中。
+      useMermaidFixStore.getState().setFix(code, trimmed, true);
     } catch (e) {
-      setAiError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      setAiError(msg || 'AI 修复请求失败');
+      setErrOpen(true);
     } finally {
       setAiFixing(false);
     }
-  }, [ctx, aiFixing, code, errMsg]);
+  }, [ctx, aiFixing, code, source]);
 
   let body: ReactNode;
   if (failed) {
@@ -549,11 +585,12 @@ export const Mermaid = memo(({ code, streaming }: { code: string; streaming?: bo
             }}
           />
         </div>
+        {aiError ? <div className={styles.aiFixFeedback}>{aiError}</div> : null}
         {errOpen ? (
           <>
             {errMsg ? <pre className={styles.errorMsg}>{errMsg}</pre> : null}
             <pre className={styles.errorCode}>
-              <code>{code}</code>
+              <code>{source}</code>
             </pre>
           </>
         ) : null}
@@ -591,7 +628,7 @@ export const Mermaid = memo(({ code, streaming }: { code: string; streaming?: bo
         />
         {aiFixed ? (
           <span className={styles.fixedBadge}>已由 AI 修复</span>
-        ) : autofixed ? (
+        ) : autofixed || persistedFix ? (
           <span className={styles.fixedBadge}>已自动修正语法</span>
         ) : null}
         <Dropdown

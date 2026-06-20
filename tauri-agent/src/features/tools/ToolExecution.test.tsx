@@ -25,6 +25,21 @@ describe('ToolExecution web_search inspector', { timeout: 30_000 }, () => {
   });
 });
 
+describe('ToolExecution skill invocation inspector', { timeout: 30_000 }, () => {
+  it('read 某个 SKILL.md 时显示「使用技能 <name>」', () => {
+    wrap(
+      <ToolExecution
+        toolName="read"
+        args={{ path: '/home/u/.agents/skills/brave-search/SKILL.md' }}
+        result={{ content: [{ type: 'text', text: '---\nname: brave-search\n---\n# Brave' }] }}
+        status="done"
+      />,
+    );
+    expect(document.body.textContent).toContain('使用技能');
+    expect(screen.getByText('brave-search')).toBeTruthy();
+  });
+});
+
 describe('ToolExecution bash terminal card', { timeout: 30_000 }, () => {
   it('renders command with prompt and output inside a terminal card', () => {
     wrap(

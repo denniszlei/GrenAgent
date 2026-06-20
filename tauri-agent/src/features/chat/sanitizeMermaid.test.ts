@@ -50,6 +50,31 @@ describe('sanitizeMermaidCode', () => {
     expect(out).toContain('-->|ok|');
   });
 
+  it('节点 [] 标签内的裸引号被包裹并转义（报错复现场景）', () => {
+    const out = sanitizeMermaidCode('flowchart LR\n  OVERVIEW[但不提供"一键安装""评论"等功能]');
+    expect(out).toContain('OVERVIEW["但不提供&quot;一键安装&quot;&quot;评论&quot;等功能"]');
+  });
+
+  it('节点 () 与 {} 标签内裸引号同样处理', () => {
+    expect(sanitizeMermaidCode('flowchart TD\n  A(说"你好")')).toContain('A("说&quot;你好&quot;")');
+    expect(sanitizeMermaidCode('graph LR\n  B{选"是"或"否"}')).toContain('B{"选&quot;是&quot;或&quot;否&quot;"}');
+  });
+
+  it('已是干净带引号的节点标签不重复处理', () => {
+    const input = 'flowchart TD\n  A["已经正确的标签"]';
+    expect(sanitizeMermaidCode(input)).toBe(input);
+  });
+
+  it('无引号的节点标签保持原样', () => {
+    const input = 'flowchart TD\n  A[普通文本] --> B(圆形节点)';
+    expect(sanitizeMermaidCode(input)).toBe(input);
+  });
+
+  it('内容含括号的节点标签（复合形状/已转义）不被误伤', () => {
+    const input = 'flowchart TD\n  A["parse.ts (修改)<br/>fn()"]';
+    expect(sanitizeMermaidCode(input)).toBe(input);
+  });
+
   it('真实 subgraph 图（节点已加引号、无裸边标签）不被误伤', () => {
     const input = [
       'flowchart TD',

@@ -1,15 +1,9 @@
-import { Button, Flexbox } from '@lobehub/ui';
+import { Flexbox } from '@lobehub/ui';
 import { Select, Switch, Tooltip } from 'antd';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { Brain, ChevronDown, ChevronRight, Hammer, Play, RotateCw } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import { codeIntelInit, codeIntelReindex, codeIntelStatus, codeIntelSync } from '../../lib/codeIntelIo';
-import { useAgentStoreContext } from '../../stores/AgentStoreContext';
+import { Brain } from 'lucide-react';
 import { ModelSelectField } from '../settings/ModelSelectField';
-import { parseAnsi, parseCodegraphStatus } from './ansi';
 import { userConfiguredCodegraph } from './codeIntelYield';
-
-const mono = 'ui-monospace, SFMono-Regular, "Cascadia Code", Menlo, Consolas, monospace';
 
 const styles = createStaticStyles(({ css }) => ({
   hero: css`
@@ -84,6 +78,11 @@ const styles = createStaticStyles(({ css }) => ({
     padding-block-start: 14px;
     border-block-start: 1px solid ${cssVar.colorBorderSecondary};
   `,
+  hint: css`
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: ${cssVar.colorTextTertiary};
+  `,
   engineBadge: css`
     padding: 1px 9px;
     border-radius: 999px;
@@ -93,190 +92,31 @@ const styles = createStaticStyles(({ css }) => ({
     white-space: nowrap;
     cursor: default;
   `,
-  statePill: css`
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 1px 9px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 500;
-  `,
-  statePillOk: css`
-    background: ${cssVar.colorSuccessBg};
-    color: ${cssVar.colorSuccess};
-  `,
-  statePillIdle: css`
-    background: ${cssVar.colorFillSecondary};
-    color: ${cssVar.colorTextTertiary};
-  `,
-  dot: css`
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: currentColor;
-  `,
-  toolbar: css`
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  `,
-  statGrid: css`
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
-    gap: 8px;
-    margin-block-start: 14px;
-  `,
-  statCard: css`
-    padding: 10px 12px;
-    border: 1px solid ${cssVar.colorBorderSecondary};
-    border-radius: 10px;
-    background: ${cssVar.colorFillQuaternary};
-  `,
-  statValue: css`
-    font-family: ${mono};
-    font-size: 18px;
-    font-weight: 650;
-    line-height: 1.2;
-    color: ${cssVar.colorText};
-    font-variant-numeric: tabular-nums;
-  `,
-  statLabel: css`
-    margin-block-start: 3px;
-    font-size: 10.5px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: ${cssVar.colorTextTertiary};
-  `,
-  detailList: css`
-    margin-block-start: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  `,
-  detailItem: css`
-    display: flex;
-    gap: 10px;
-    font-size: 11.5px;
-    line-height: 1.5;
-  `,
-  detailKey: css`
-    flex: 0 0 auto;
-    min-width: 58px;
-    color: ${cssVar.colorTextTertiary};
-  `,
-  detailVal: css`
-    min-width: 0;
-    color: ${cssVar.colorTextSecondary};
-    font-family: ${mono};
-    word-break: break-all;
-  `,
-  rawBar: css`
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-block-start: 14px;
-  `,
-  rawToggle: css`
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: ${cssVar.colorTextSecondary};
-    font-size: 12px;
-    cursor: pointer;
-    transition: color 0.16s ease;
-
-    &:hover {
-      color: ${cssVar.colorText};
-    }
-  `,
-  log: css`
-    margin: 8px 0 0;
-    padding: 12px 14px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
-    background: #0e1116;
-    color: #abb2bf;
-    font-family: ${mono};
-    font-size: 12px;
-    line-height: 1.55;
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 260px;
-    overflow: auto;
-  `,
-  empty: css`
-    margin-block-start: 14px;
-    padding: 18px;
-    border: 1px dashed ${cssVar.colorBorderSecondary};
-    border-radius: 10px;
-    text-align: center;
-    font-size: 12px;
-    color: ${cssVar.colorTextTertiary};
-  `,
 }));
 
 interface CodeIntelTabProps {
   values: Record<string, string>;
   setValue: (key: string, value: string) => void;
-  /** 标记有改动（触发自动存盘 + 重启生效提示）。 */
+  /** 标记有改动（触发自动存盘，热更生效）。 */
   onChange: () => void;
+  /** 需要 sidecar 重载扩展才生效的改动（如 explore_context 开关）：触发 session.reload()。 */
+  onReload?: () => void;
   /** 当前已连 MCP 工具名（用于让位徽标，来自 tools cache 汇总）。 */
   knownToolNames: string[];
 }
 
 const ENGINE_OPTIONS = [
   { value: 'codegraph', label: 'CodeGraph（内置，默认）' },
-  { value: 'gitnexus', label: 'GitNexus（opt-in，Phase 4）' },
   { value: 'off', label: '关闭' },
 ];
 
-export function CodeIntelTab({ values, setValue, onChange, knownToolNames }: CodeIntelTabProps) {
-  const { workspace } = useAgentStoreContext();
-  const engine = values.CODE_INTEL ?? 'codegraph';
+export function CodeIntelTab({ values, setValue, onChange, onReload, knownToolNames }: CodeIntelTabProps) {
+  // 旧/未知引擎值（如已移除的 gitnexus）回落 codegraph，避免选择器显示空。
+  const rawEngine = values.CODE_INTEL ?? 'codegraph';
+  const engine = ENGINE_OPTIONS.some((o) => o.value === rawEngine) ? rawEngine : 'codegraph';
   const autoInit = (values.CODE_INTEL_AUTO_INIT ?? '1') !== '0';
   const explorerOn = (values.CODE_INTEL_EXPLORER ?? '1') !== '0';
   const yielded = userConfiguredCodegraph(values.MCP_SERVERS ?? '', knownToolNames);
-
-  const [status, setStatus] = useState<string>('');
-  const [busy, setBusy] = useState<string | null>(null);
-  const [showRaw, setShowRaw] = useState(false);
-
-  const parsed = useMemo(() => parseCodegraphStatus(status), [status]);
-  const logSegments = useMemo(() => parseAnsi(status), [status]);
-  const loaded = status.trim().length > 0;
-
-  const refreshStatus = async () => {
-    setBusy('status');
-    try {
-      setStatus(await codeIntelStatus(workspace));
-    } catch (e) {
-      setStatus(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  useEffect(() => {
-    void refreshStatus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace]);
-
-  const run = async (kind: 'init' | 'sync' | 'reindex') => {
-    setBusy(kind);
-    try {
-      const fn = kind === 'init' ? codeIntelInit : kind === 'sync' ? codeIntelSync : codeIntelReindex;
-      setStatus(await fn(workspace));
-      await refreshStatus();
-    } catch (e) {
-      setStatus(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  };
 
   const setEngine = (v: string) => {
     setValue('CODE_INTEL', v);
@@ -289,34 +129,13 @@ export function CodeIntelTab({ values, setValue, onChange, knownToolNames }: Cod
   const toggleExplorer = (on: boolean) => {
     setValue('CODE_INTEL_EXPLORER', on ? '1' : '0');
     onChange();
+    // 注册/注销 explore_context 需重跑扩展工厂 → 触发 session.reload() 热更，无需重启。
+    onReload?.();
   };
   const setExplorerModel = (v: string) => {
     setValue('CODE_INTEL_EXPLORER_MODEL', v);
     onChange();
   };
-
-  const details = [
-    ...(parsed.project ? [{ label: 'Project', value: parsed.project }] : []),
-    ...parsed.details,
-  ];
-  const rawVisible = showRaw || !parsed.indexed;
-
-  const renderLog = () => (
-    <pre className={styles.log} data-testid="code-intel-status">
-      {logSegments.map((seg, i) => (
-        <span
-          key={`${i}-${seg.text.length}`}
-          style={{
-            color: seg.color,
-            fontWeight: seg.bold ? 600 : undefined,
-            opacity: seg.dim ? 0.7 : undefined,
-          }}
-        >
-          {seg.text}
-        </span>
-      ))}
-    </pre>
-  );
 
   return (
     <div data-testid="code-intel-tab">
@@ -365,27 +184,7 @@ export function CodeIntelTab({ values, setValue, onChange, knownToolNames }: Cod
 
       <section className={styles.card}>
         <div className={styles.cardHead}>
-          <span className={styles.cardTitle}>索引（当前 workspace）</span>
-          <Flexbox horizontal align="center" gap={8}>
-            {loaded ? (
-              <span
-                className={`${styles.statePill} ${parsed.indexed ? styles.statePillOk : styles.statePillIdle}`}
-                data-testid="code-intel-state"
-              >
-                <span className={styles.dot} />
-                {parsed.indexed ? '已索引' : '未索引'}
-              </span>
-            ) : null}
-            <Button
-              size="small"
-              icon={<RotateCw size={14} />}
-              loading={busy === 'status'}
-              data-testid="code-intel-refresh"
-              onClick={() => void refreshStatus()}
-            >
-              刷新
-            </Button>
-          </Flexbox>
+          <span className={styles.cardTitle}>索引</span>
         </div>
         <div className={styles.cardBody}>
           <div className={styles.row}>
@@ -395,82 +194,10 @@ export function CodeIntelTab({ values, setValue, onChange, knownToolNames }: Cod
             </div>
             <Switch size="small" checked={autoInit} data-testid="code-intel-autoinit" onChange={toggleAutoInit} />
           </div>
-
           <div className={styles.divided}>
-            <div className={styles.toolbar}>
-              <Button
-                type="primary"
-                size="small"
-                icon={<Play size={14} />}
-                loading={busy === 'init'}
-                data-testid="code-intel-init"
-                onClick={() => void run('init')}
-              >
-                初始化
-              </Button>
-              <Button
-                size="small"
-                icon={<RotateCw size={14} />}
-                loading={busy === 'sync'}
-                data-testid="code-intel-sync"
-                onClick={() => void run('sync')}
-              >
-                增量同步
-              </Button>
-              <Button
-                size="small"
-                icon={<Hammer size={14} />}
-                loading={busy === 'reindex'}
-                data-testid="code-intel-reindex"
-                onClick={() => void run('reindex')}
-              >
-                重建
-              </Button>
+            <div className={styles.hint}>
+              索引状态与「初始化 / 增量同步 / 重建」已移到对话框上方的「索引」入口，点开即可查看与操作。
             </div>
-
-            {!loaded ? (
-              <div className={styles.empty}>尚未读取索引状态，点右上「刷新」查看统计</div>
-            ) : (
-              <>
-                {parsed.stats.length > 0 ? (
-                  <div className={styles.statGrid}>
-                    {parsed.stats.map((s) => (
-                      <div key={s.label} className={styles.statCard}>
-                        <div className={styles.statValue}>{s.value}</div>
-                        <div className={styles.statLabel}>{s.label}</div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-
-                {details.length > 0 ? (
-                  <div className={styles.detailList}>
-                    {details.map((d) => (
-                      <div key={d.label} className={styles.detailItem}>
-                        <span className={styles.detailKey}>{d.label}</span>
-                        <span className={styles.detailVal}>{d.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-
-                {parsed.indexed ? (
-                  <div className={styles.rawBar}>
-                    <button
-                      type="button"
-                      className={styles.rawToggle}
-                      data-testid="code-intel-raw-toggle"
-                      onClick={() => setShowRaw((v) => !v)}
-                    >
-                      {showRaw ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                      原始输出
-                    </button>
-                  </div>
-                ) : null}
-
-                {rawVisible ? renderLog() : null}
-              </>
-            )}
           </div>
         </div>
       </section>
@@ -483,7 +210,7 @@ export function CodeIntelTab({ values, setValue, onChange, knownToolNames }: Cod
           <div className={styles.row}>
             <div>
               <div className={styles.rowLabel}>启用 explore_context</div>
-              <div className={styles.rowDesc}>只读探索子代理；关闭后该工具不再注册（需重启生效）</div>
+              <div className={styles.rowDesc}>只读探索子代理；关闭后该工具不再注册（即时生效，无需重启）</div>
             </div>
             <Switch size="small" checked={explorerOn} data-testid="code-intel-explorer" onChange={toggleExplorer} />
           </div>

@@ -5,6 +5,7 @@ import { PanelHeader } from '../../components/PanelHeader';
 import { useLayoutStore, selectSidebarVisible, selectRightPanelVisible } from '../../stores/layoutStore';
 import { usePlanModeStore } from '../../stores/planModeStore';
 import { SubAgentMenuButton } from '../subagents/SubAgentMenuButton';
+import { WorkspaceTabs } from '../workspace/WorkspaceTabs';
 
 /** 仅订阅侧栏实际可见性，避免布局其它变化时重渲染主列 header。 */
 export const SidebarToggleButton = memo(function SidebarToggleButton() {
@@ -67,6 +68,7 @@ export const MainColumnHeader = memo(function MainColumnHeader() {
       left={
         <>
           <SidebarToggleButton />
+          <WorkspaceTabs />
           <PlanModeBadge />
         </>
       }

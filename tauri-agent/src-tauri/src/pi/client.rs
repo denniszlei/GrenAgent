@@ -6,6 +6,7 @@ use serde_json::Value;
 use tokio::sync::{oneshot, Mutex};
 use uuid::Uuid;
 
+use crate::pi::diag::forward_log;
 use crate::pi::sink::EventSink;
 use crate::pi::transport::PiTransport;
 use crate::pi::types::{PiInbound, PiOutbound, RpcResponse};
@@ -81,19 +82,19 @@ impl PiClient {
                             .and_then(|x| x.as_str())
                             .unwrap_or("");
                         if err.is_empty() {
-                            eprintln!("[pi event:{}] {t}", self.workspace);
+                            forward_log(&format!("[pi event:{}] {t}", self.workspace));
                         } else {
-                            eprintln!("[pi event:{}] {t} error={err}", self.workspace);
+                            forward_log(&format!("[pi event:{}] {t} error={err}", self.workspace));
                         }
                     }
                 }
                 self.sink.emit_event(&self.workspace, &v);
             }
             Err(e) => {
-                eprintln!(
+                forward_log(&format!(
                     "[pi:{}] skip unparsable line: {e}: {trimmed}",
                     self.workspace
-                );
+                ));
             }
         }
     }

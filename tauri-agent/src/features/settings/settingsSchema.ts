@@ -279,9 +279,22 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
   },
 ];
 
-/** 连接（im-gateway）字段单列，供 ConnectionsPanel 复用同一存储。 */
-export const CONNECTION_FIELDS: SettingField[] = [
-  { key: 'IM_GATEWAY', label: '启用网关', type: 'boolean', description: '开启后可经 im-gateway 接入外部 IM' },
-  { key: 'IM_GATEWAY_PORT', label: '端口', type: 'number', placeholder: '8765' },
-  { key: 'IM_GATEWAY_TOKEN', label: 'Token（可选）', type: 'password' },
+/** 微信（ilink/clawbot 官方 AI bot）接入字段。扫码登录 + 长轮询，无需公网/端口。
+ *  连接在 sidecar 启动时建立，改动需「保存并重启」生效（restart 类）。 */
+export const WECHAT_FIELDS: SettingField[] = [
+  { key: 'WECHAT_OC_ENABLE', label: '启用微信(ilink 官方 bot)', type: 'boolean', description: '微信智能对话开放接口；扫码登录、长轮询收发，无需公网', effect: 'restart' },
+  { key: 'WECHAT_OC_TOKEN', label: 'bot_token（留空则扫码登录）', type: 'password', description: '已有 token 可直接填；留空则启动后在通知中给出扫码链接', effect: 'restart' },
+  { key: 'WECHAT_OC_OWNER', label: '主人 ilink_user_id（留空不限）', type: 'text', effect: 'restart' },
+  { key: 'WECHAT_OC_BOT_TYPE', label: 'bot_type（默认 3）', type: 'text', placeholder: '3', effect: 'restart' },
+  { key: 'WECHAT_OC_BASE_URL', label: 'API 基址（默认官方）', type: 'text', placeholder: 'https://ilinkai.weixin.qq.com', effect: 'restart' },
 ];
+
+/** 通用 IM 网关（HTTP webhook，供 Slack / 飞书 / Telegram 等通过薄适配器转发）。 */
+export const GATEWAY_FIELDS: SettingField[] = [
+  { key: 'IM_GATEWAY', label: '启用网关', type: 'boolean', description: '开启后可经 im-gateway 接入外部 IM', effect: 'restart' },
+  { key: 'IM_GATEWAY_PORT', label: '网关端口', type: 'number', placeholder: '8765', effect: 'restart' },
+  { key: 'IM_GATEWAY_TOKEN', label: '网关 Token（可选）', type: 'password', effect: 'restart' },
+];
+
+/** 合并列表，供旧调用方复用同一存储。 */
+export const CONNECTION_FIELDS: SettingField[] = [...WECHAT_FIELDS, ...GATEWAY_FIELDS];

@@ -20,13 +20,17 @@ import { MainColumnHeader } from './features/layout/MainColumnHeader';
 import { RightPanelShell, SidebarShell, TerminalShell } from './features/layout/PanelShells';
 import { ModuleRail } from './features/layout/ModuleRail';
 import { ModuleContainer } from './features/workspace/ModuleContainer';
+import { CheckpointsPanel } from './features/checkpoints/CheckpointsPanel';
+import { ReviewPanel } from './features/review/ReviewPanel';
+import { KnowledgePanel } from './features/knowledge/KnowledgePanel';
+import { useModuleStore, type WorkspaceView } from './stores/moduleStore';
 import { FullscreenLoading } from './components/FullscreenLoading';
 import { onPiEvent, pi, type OpenWorkspaceResult } from './lib/pi';
 import { pickDirectory } from './lib/dialog';
 import { prewarmWorkspace } from './lib/prewarm';
 import { createStartupPerf } from './lib/startupPerf';
 import { pathsEquivalent } from './lib/pathUtils';
-import { STARTUP_SCRATCH_KEY, canReuseScratch } from './lib/startupConversation';
+import { canReuseScratch, readRememberedScratch, rememberScratch } from './lib/startupConversation';
 import {
   getAllSessionsInflight,
   getCachedAllSessions,
@@ -109,12 +113,63 @@ function sessionAlreadyActive(path: string | null, openResult: OpenWorkspaceResu
   return false;
 }
 
+/**
+ * 取一个空白对话 cwd：优先复用上次记住、至今未使用（无落盘会话）的 draft，否则新建并记住。
+ * 启动与「新建对话」共用此逻辑，把磁盘上的空对话目录收敛到最多 1 个，避免无限堆积。
+ */
+async function acquireDraftScratch(): Promise<string> {
+  let worksDir = '';
+  try {
+    worksDir = await pi.getWorksDir();
+  } catch {
+    /* ignore — worksDir 取不到时仅靠「是否已落盘」判定复用 */
+  }
+  let sessionCwds: Array<string | null> = [];
+  try {
+    sessionCwds = (await pi.listAllSessions()).map((s) => s.cwd);
+  } catch {
+    /* ignore */
+  }
+  const remembered = readRememberedScratch();
+  if (canReuseScratch(remembered, worksDir, sessionCwds)) return remembered;
+  const { cwd } = await pi.createConversation();
+  rememberScratch(cwd);
+  return cwd;
+}
+
+/** 项目级工具面板（绑定当前工作区）：在主列内渲染，侧栏常驻、项目上下文不丢。 */
+function WorkspacePanel({ view }: { view: Exclude<WorkspaceView, 'chat'> }) {
+  switch (view) {
+    case 'checkpoints':
+      return <CheckpointsPanel />;
+    case 'review':
+      return <ReviewPanel />;
+    case 'knowledge':
+      return <KnowledgePanel />;
+    default:
+      return null;
+  }
+}
+
 const MainChatColumn = memo(function MainChatColumn() {
+  const view = useModuleStore((s) => s.activeWorkspaceView);
+  const isChat = view === 'chat';
   return (
     <Flexbox flex={1} style={{ minWidth: 0, height: '100%' }}>
       <MainColumnHeader />
       <Flexbox flex={1} style={{ minHeight: 0, position: 'relative' }}>
-        <ChatView />
+        {/* ChatView 常驻保活：切到项目工具视图时仅 display:none 隐藏，避免重挂整棵对话树。 */}
+        <Flexbox
+          flex={1}
+          style={{ display: isChat ? 'flex' : 'none', minHeight: 0, height: '100%', position: 'relative' }}
+        >
+          <ChatView />
+        </Flexbox>
+        {isChat ? null : (
+          <Flexbox flex={1} style={{ minHeight: 0, height: '100%' }}>
+            <WorkspacePanel view={view} />
+          </Flexbox>
+        )}
       </Flexbox>
     </Flexbox>
   );
@@ -224,10 +279,12 @@ const Workspace = memo(function Workspace() {
   const prevWorkspaceRef = useRef(workspace);
 
   // 切换工作区：dispose 旧终端（TerminalBody 卸载会停 shell）、终端重置为 1 个 idle，page 结构保留。
+  // 同时把主列视图重置回「对话」，避免带着上个项目的工具面板（检查点/审查等）切到新项目看到错配内容。
   useEffect(() => {
     if (prevWorkspaceRef.current !== workspace) {
       prevWorkspaceRef.current = workspace;
       useDockStore.getState().resetWorkspaceTabs();
+      useModuleStore.getState().setActiveWorkspaceView('chat');
     }
   }, [workspace]);
 
@@ -420,7 +477,8 @@ const Workspace = memo(function Workspace() {
     // 避免「await 后端删除 + 重拉」期间列表项残留、删完才突然消失造成的弹闪与「得好一会才删掉」。
     st.hideDeletedSession(path);
     st.removeOptimisticSession(path);
-    st.setAllSessions(st.allSessions.filter((s) => !pathsEquivalent(s.path, path)));
+    const remaining = st.allSessions.filter((s) => !pathsEquivalent(s.path, path));
+    st.setAllSessions(remaining);
     if (wasActive) {
       // 删的是会话区正在显示的会话：先同步清空会话区，避免被删会话消息残留。
       store.reset();
@@ -430,23 +488,40 @@ const Workspace = memo(function Workspace() {
       await pi.deleteSession(cwd, path);
       invalidateAllSessionsCache();
       if (wasActive) {
-        // 后端 delete_pi_session 删活跃会话前已 new_session 切到新空会话，前端对齐到该新会话。
-        try {
-          const state = (await pi.getState(cwd)) as { sessionFile?: string };
-          const newPath = state.sessionFile;
-          if (newPath) {
-            st.setActiveSession(newPath);
-            st.setWorkspaceSessionPath(cwd, newPath);
-            st.upsertOptimisticSession({
-              id: `opt-${newPath}`,
-              path: newPath,
-              cwd,
-              timestamp: new Date().toISOString(),
-              name: null,
-            });
+        // 优先切到当前项目里仍存在的最近一个会话——删掉刚新建的空会话时应回到项目原有会话，
+        // 而不是停在后端 new_session 产生的又一个空会话上（表现为「界面没变化」）。
+        const nextInProject = remaining
+          .filter((s) => s.cwd && pathsEquivalent(s.cwd, cwd))
+          .sort((a, b) => (b.timestamp ?? '').localeCompare(a.timestamp ?? ''))[0];
+        if (nextInProject) {
+          try {
+            await pi.switchSession(cwd, nextInProject.path);
+            const { messages } = await pi.getMessages(cwd);
+            store.loadMessages(messages, { force: true, sessionPath: nextInProject.path });
+            st.setActiveSession(nextInProject.path);
+            st.setWorkspaceSessionPath(cwd, nextInProject.path);
+          } catch {
+            /* 切换失败：保持空会话区，由下方 refreshSessions 兜底 */
           }
-        } catch {
-          /* getState 失败则保持空会话区，由下方 refreshSessions 兜底选择会话 */
+        } else {
+          // 项目内已无其它会话：对齐后端 delete_pi_session 删活跃会话前 new_session 切到的新空会话。
+          try {
+            const state = (await pi.getState(cwd)) as { sessionFile?: string };
+            const newPath = state.sessionFile;
+            if (newPath) {
+              st.setActiveSession(newPath);
+              st.setWorkspaceSessionPath(cwd, newPath);
+              st.upsertOptimisticSession({
+                id: `opt-${newPath}`,
+                path: newPath,
+                cwd,
+                timestamp: new Date().toISOString(),
+                name: null,
+              });
+            }
+          } catch {
+            /* getState 失败则保持空会话区，由下方 refreshSessions 兜底选择会话 */
+          }
         }
       }
       await refreshSessions(cwd);
@@ -477,13 +552,15 @@ const Workspace = memo(function Workspace() {
     if (next) {
       st.setActiveWorkspace(next);
     } else {
-      const { cwd } = await pi.createConversation();
+      const cwd = await acquireDraftScratch();
+      st.setDraftConversation(cwd);
       st.setActiveWorkspace(cwd);
     }
   }, []);
 
   const handleNewConversation = useCallback(async () => {
-    const { cwd } = await pi.createConversation();
+    // 复用上一个未使用的空白对话，避免每次点「新建对话」都建一个 works 目录而堆积。
+    const cwd = await acquireDraftScratch();
     const st = useSessionStore.getState();
     st.setActiveSession('');
     st.setDraftConversation(cwd);
@@ -674,46 +751,30 @@ export default function App() {
 
   useEffect(() => {
     void (async () => {
-      let bootWorksDir = '';
       try {
-        bootWorksDir = await pi.getWorksDir();
+        const bootWorksDir = await pi.getWorksDir();
         useSessionStore.getState().setWorksDir(bootWorksDir);
       } catch {
         /* ignore — 上面的自愈 effect 会持续重试补上 worksDir */
       }
 
-      // 首屏默认空的新对话：不再恢复最近项目的会话。优先复用上次启动留下、至今未使用过的
-      // 空白对话（localStorage 记住其 cwd），它一旦被用过（出现在已落盘会话里）就不再复用，
-      // 从而既保证首屏是干净的新对话，又避免每次启动都新建空 works 目录而堆积。
-      let sessionCwds: Array<string | null> = [];
-      try {
-        sessionCwds = (await pi.listAllSessions()).map((s) => s.cwd);
-      } catch {
-        /* ignore */
-      }
-
-      let remembered = '';
-      try {
-        remembered = localStorage.getItem(STARTUP_SCRATCH_KEY) ?? '';
-      } catch {
-        /* ignore */
-      }
-
+      // 首屏默认空的新对话：不恢复最近项目会话。优先复用上次留下、至今未使用过的空白对话，
+      // 一旦被用过（首发落盘后 markScratchUsed 清除记忆）就改为新建，既保证首屏干净又避免堆积。
       let ws = '';
-      if (canReuseScratch(remembered, bootWorksDir, sessionCwds)) {
-        ws = remembered;
-      } else {
-        try {
-          ws = (await pi.createConversation()).cwd;
-          try {
-            localStorage.setItem(STARTUP_SCRATCH_KEY, ws);
-          } catch {
-            /* ignore */
-          }
-        } catch {
-          /* ignore */
-        }
+      try {
+        ws = await acquireDraftScratch();
+      } catch {
+        /* ignore */
       }
+
+      // 清理历史 / 崩溃残留的空对话目录：删掉 works 下所有无会话的孤儿，仅保留当前草稿。
+      // 配合「统一复用未使用 draft」把磁盘空目录收敛到最多 1 个。
+      try {
+        await pi.pruneOrphanConversations(ws ? [ws] : []);
+      } catch {
+        /* ignore — 清理失败无害，下次启动再试 */
+      }
+
       if (ws) {
         useSessionStore.getState().setDraftConversation(ws);
         useSessionStore.getState().setActiveSession('');

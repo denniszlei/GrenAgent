@@ -11,6 +11,7 @@ use tauri_plugin_shell::ShellExt;
 use tokio::sync::Mutex;
 
 use crate::pi::client::PiClient;
+use crate::pi::diag::forward_log;
 use crate::pi::framing::JsonlBuffer;
 use crate::pi::guard::ProcessGuard;
 use crate::pi::transport::PiTransport;
@@ -73,7 +74,7 @@ pub fn spawn_pi_client(
     if let Some(guard) = app.try_state::<Arc<ProcessGuard>>() {
         let pid = child.pid();
         if let Err(e) = guard.assign(pid) {
-            eprintln!("[pi] failed to assign sidecar (pid {pid}) to job: {e}");
+            forward_log(&format!("[pi] failed to assign sidecar (pid {pid}) to job: {e}"));
         }
     }
 
@@ -91,7 +92,7 @@ pub fn spawn_pi_client(
         async_runtime::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
             if !banner_for_timer.load(Ordering::Relaxed) {
-                eprintln!(
+                forward_log(
                     "[pi] WARNING: GrenAgent sidecar startup marker not seen within 10s. The spawned `pi` may be a plain upstream binary WITHOUT GrenAgent guardrails (safety/permission/sandbox). Rebuild the sidecar via `npm run build:sidecar`."
                 );
             }
@@ -118,20 +119,20 @@ pub fn spawn_pi_client(
                     if s.contains("[grenagent-sidecar] ready") {
                         banner_seen.store(true, Ordering::Relaxed);
                         if !s.contains("safety=on") {
-                            eprintln!(
+                            forward_log(&format!(
                                 "[pi] WARNING: sidecar reports guardrails are NOT active (safety off): {}",
                                 s.trim()
-                            );
+                            ));
                         }
                     }
-                    eprintln!("[pi stderr] {s}");
+                    forward_log(&format!("[pi stderr] {s}"));
                 }
                 CommandEvent::Terminated(payload) => {
                     exit_code = payload.code;
                     break;
                 }
                 CommandEvent::Error(err) => {
-                    eprintln!("[pi error] {err}");
+                    forward_log(&format!("[pi error] {err}"));
                     // 不 break：让 channel 自然关闭，统一在循环外做退出处理
                 }
                 _ => {}

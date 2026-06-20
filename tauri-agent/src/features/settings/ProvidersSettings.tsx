@@ -384,27 +384,10 @@ export function ProvidersSettings() {
     setActiveId(id);
   };
 
-  const removeProvider = () => {
-    touch();
-    const from = active?.id;
-    setProviders((ps) => ps.filter((p) => p.id !== from));
-    setActiveId('openai');
-  };
-
-  // 同步模型弹窗确认后：把勾选且尚未存在的模型 id 追加进列表（去重，保留已有项）。
-  const addSyncedModels = (ids: string[]) => {
-    const existing = new Set((active?.models ?? []).map((m) => m.id));
-    const added = ids.filter((id) => id && !existing.has(id)).map((id) => attachUid({ id }));
-    if (added.length === 0) {
-      setSyncInfo('所选模型均已在列表');
-      return;
-    }
-    patchActive({ models: [...(active?.models ?? []), ...added] });
-    setSyncInfo(`已添加 ${added.length} 个模型，记得保存`);
-  };
-
-  const save = async () => {
-    const idErr = validateProviderIds(providers);
+  // 持久化给定供应商列表：写 models.json/auth.json + 热更各 workspace（switch_session 重建 runtime）。
+  // 接收显式 list（而非读 state）以便删除后用「删除后的列表」立即落盘，绕开 setState 的异步。
+  const persist = async (list: EditProvider[]) => {
+    const idErr = validateProviderIds(list);
     if (idErr) {
       setError(idErr);
       setSaved(false);
@@ -416,7 +399,7 @@ export function ProvidersSettings() {
     setSaved(false);
     setSyncInfo(null);
     try {
-      const { modelsJson, authJson } = serializeState(stripModelUids(providers));
+      const { modelsJson, authJson } = serializeState(stripModelUids(list));
       const res = await pi.setProviderConfig(modelsJson, authJson);
       // 供应商配置已变更：定向失效缓存，让模型/供应商下拉重新读取。
       invalidateProviderList();
@@ -433,6 +416,29 @@ export function ProvidersSettings() {
       setSaving(false);
     }
   };
+
+  const removeProvider = () => {
+    const from = active?.id;
+    const next = providers.filter((p) => p.id !== from);
+    setProviders(next);
+    setActiveId('openai');
+    // 删除是明确的破坏性动作（已二次确认），直接落盘 + 热更，无需再手动点保存。
+    void persist(next);
+  };
+
+  // 同步模型弹窗确认后：把勾选且尚未存在的模型 id 追加进列表（去重，保留已有项）。
+  const addSyncedModels = (ids: string[]) => {
+    const existing = new Set((active?.models ?? []).map((m) => m.id));
+    const added = ids.filter((id) => id && !existing.has(id)).map((id) => attachUid({ id }));
+    if (added.length === 0) {
+      setSyncInfo('所选模型均已在列表');
+      return;
+    }
+    patchActive({ models: [...(active?.models ?? []), ...added] });
+    setSyncInfo(`已添加 ${added.length} 个模型，记得保存`);
+  };
+
+  const save = () => persist(providers);
 
   const builtIns = providers.filter((p) => p.builtIn);
   const customs = providers.filter((p) => !p.builtIn);

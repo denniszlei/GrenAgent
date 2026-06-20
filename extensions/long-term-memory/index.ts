@@ -9,6 +9,7 @@
 //   memory_delete({ id })                     - delete a memory by id
 // Command:
 //   /memory list | /memory forget <id> | /memory clear [project|global|all]
+//   /memory history [id] | /memory history-clear [project|global|all] | /memory rollback <historyId>
 //
 // Each prompt auto-recalls relevant memories (both scopes) and injects them.
 
@@ -349,7 +350,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand("memory", {
     description:
-      "Manage memory: /memory list | /memory add <text> | /memory edit <id> [--cat <category|none>] <text> | /memory forget <id> | /memory clear [project|global|all] | /memory history [id] | /memory rollback <historyId>",
+      "Manage memory: /memory list | /memory add <text> | /memory edit <id> [--cat <category|none>] <text> | /memory forget <id> | /memory clear [project|global|all] | /memory history [id] | /memory history-clear [project|global|all] | /memory rollback <historyId>",
     handler: async (args, ctx) => {
       const { project, global } = ensureStores(ctx.cwd);
       const parts = args.trim().split(/\s+/).filter(Boolean);
@@ -435,7 +436,8 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify("Usage: /memory forget <id>", "warning");
           return;
         }
-        const ok = project.forget(id) || global.forget(id);
+        // 用 remove（记 DELETE 历史）而非 forget（硬删不记录）：让面板删除可在历史里回滚恢复。
+        const ok = project.remove(id, "forget") || global.remove(id, "forget");
         ctx.ui.notify(ok ? `Forgot memory ${id}.` : `No memory with id ${id}.`, ok ? "success" : "warning");
         return;
       }
@@ -454,20 +456,40 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      if (sub === "history-clear") {
+        const scope = parts[1] ?? "all";
+        let removed = 0;
+        if (scope === "project" || scope === "all") removed += project.clearHistory();
+        if (scope === "global" || scope === "all") removed += global.clearHistory();
+        ctx.ui.notify(`Cleared ${removed} ${scope} memory history entr${removed === 1 ? "y" : "ies"}.`, "info");
+        return;
+      }
+
       if (sub === "rollback") {
         const hid = Number(parts[1]);
         if (!Number.isFinite(hid)) {
-          ctx.ui.notify("Usage: /memory rollback <historyId>", "warning");
+          ctx.ui.notify("Usage: /memory rollback <historyId> [project|global]", "warning");
           return;
         }
+        // 项目库与全局库的 historyId 各自从 1 自增、必然撞号；带 scope 才能回滚到正确的库。
+        // 不带 scope 时退回旧行为（先 project 后 global），保持向后兼容。
+        const scope = parts[2];
         const config = await resolveEmbeddingConfig(ctx.modelRegistry);
-        const r = (await project.rollback(hid, config)) ?? (await global.rollback(hid, config));
-        ctx.ui.notify(r ? `Rolled back to history #${hid} (memory ${r.id}).` : `No history #${hid}.`, r ? "success" : "warning");
+        const target = scope === "global" ? global : scope === "project" ? project : null;
+        const r = target
+          ? await target.rollback(hid, config)
+          : ((await project.rollback(hid, config)) ?? (await global.rollback(hid, config)));
+        ctx.ui.notify(
+          r
+            ? `Rolled back to history #${hid} (memory ${r.id}).`
+            : `Nothing to roll back for #${hid} (already undone, or memory was cleared).`,
+          r ? "success" : "warning",
+        );
         return;
       }
 
       ctx.ui.notify(
-        "Usage: /memory list | /memory add <text> | /memory edit <id> [--cat <category|none>] <text> | /memory forget <id> | /memory clear [project|global|all] | /memory history [id] | /memory rollback <historyId>",
+        "Usage: /memory list | /memory add <text> | /memory edit <id> [--cat <category|none>] <text> | /memory forget <id> | /memory clear [project|global|all] | /memory history [id] | /memory history-clear [project|global|all] | /memory rollback <historyId>",
         "warning",
       );
     },

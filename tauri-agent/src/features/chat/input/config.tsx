@@ -1,8 +1,7 @@
 import type { ComponentType } from 'react';
 import ModeAction from './actions/ModeAction';
 import ApprovalAction from './actions/ApprovalAction';
-import ModelAction from './actions/ModelAction';
-import ThinkingAction from './actions/ThinkingAction';
+import ModelThinkingAction from './actions/ModelThinkingAction';
 import CompactAction from './actions/CompactAction';
 import NewSessionAction from './actions/NewSessionAction';
 import UploadAction from './actions/UploadAction';
@@ -18,8 +17,7 @@ import SpeakAction from './actions/SpeakAction';
 export const actionMap = {
   mode: ModeAction,
   approval: ApprovalAction,
-  model: ModelAction,
-  thinking: ThinkingAction,
+  model: ModelThinkingAction,
   compact: CompactAction,
   newSession: NewSessionAction,
   fileUpload: UploadAction,
@@ -39,7 +37,6 @@ export const ACTION_LABELS: Record<ActionKey, string> = {
   mode: '模式',
   approval: '审批',
   model: '模型',
-  thinking: '思考强度',
   compact: '压缩上下文',
   newSession: '新会话',
   fileUpload: '添加图片',
@@ -53,7 +50,6 @@ export const DEFAULT_LEFT_ACTIONS: ActionKey[] = [
   'mode',
   'approval',
   'model',
-  'thinking',
   'fileUpload',
   'kbAdd',
   'webSearch',
@@ -76,18 +72,16 @@ export const COLLAPSE_PRIORITY: ActionKey[] = [
   'compact',
   'newSession',
   'fileUpload',
-  'thinking',
 ];
 
 /**
  * 各控件渲染宽度的估算值（px，含约 2px 行内间距），用于无需挂载组件即可计算溢出。
- * model 取限宽后的上限（见 ModelAction 的 maxWidth），按最坏情况预留以避免溢出。
+ * model 取限宽后的上限（见 ModelThinkingAction 的 maxWidth），按最坏情况预留以避免溢出。
  */
 export const ACTION_WIDTH = {
   mode: 96,
   approval: 96,
-  model: 180,
-  thinking: 84,
+  model: 210,
   fileUpload: 28,
   kbAdd: 28,
   webSearch: 28,

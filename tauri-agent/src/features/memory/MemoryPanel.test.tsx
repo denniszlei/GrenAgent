@@ -69,12 +69,22 @@ describe('MemoryPanel', () => {
     await waitFor(() => expect(runCommand).toHaveBeenCalledWith('/ws', '/memory forget p1'));
   });
 
-  it('clears memories via /memory clear', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    render(<MemoryPanel />);
+  it('clears memories via popconfirm -> /memory clear', async () => {
+    renderPanel();
     await waitFor(() => expect(screen.getByTestId('mem-clear')).toBeTruthy());
     fireEvent.click(screen.getByTestId('mem-clear'));
+    fireEvent.click(await screen.findByTestId('mem-clear-confirm'));
     await waitFor(() => expect(runCommand).toHaveBeenCalledWith('/ws', '/memory clear all'));
+  });
+
+  it('clears history via popconfirm -> /memory history-clear (only in history view)', async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getByTestId('mem-view-history')).toBeTruthy());
+    expect(screen.queryByTestId('mem-history-clear')).toBeNull();
+    fireEvent.click(screen.getByTestId('mem-view-history'));
+    fireEvent.click(await screen.findByTestId('mem-history-clear'));
+    fireEvent.click(await screen.findByTestId('mem-history-clear-confirm'));
+    await waitFor(() => expect(runCommand).toHaveBeenCalledWith('/ws', '/memory history-clear all'));
   });
 
   it('adds a memory via modal -> /memory add', async () => {

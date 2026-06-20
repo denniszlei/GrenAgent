@@ -33,6 +33,7 @@ vi.mock('../../stores/uiPromptStore', () => ({
 }));
 
 import { ExtensionUiHost } from './ExtensionUiHost';
+import { useImMessagesStore } from '../../stores/imMessagesStore';
 
 afterEach(() => {
   cleanup();
@@ -42,6 +43,7 @@ afterEach(() => {
   setRequest.mockClear();
   msg.info.mockClear();
   msg.warning.mockClear();
+  useImMessagesStore.getState().setConversations([]);
 });
 
 describe('ExtensionUiHost', () => {
@@ -80,6 +82,32 @@ describe('ExtensionUiHost', () => {
       },
     });
     expect(setServers).toHaveBeenCalledWith([{ name: 'fs', transport: 'stdio', status: 'connected', tools: 14 }]);
+  });
+
+  it('routes setStatus(wechat-messages) into the im messages store', () => {
+    render(<ExtensionUiHost />);
+    const conversations = [
+      { user: 'u1', messages: [{ role: 'user', text: '在吗' }, { role: 'assistant', text: '在的' }] },
+    ];
+    emit({
+      workspace: '/ws',
+      request: {
+        id: 'wm1',
+        method: 'setStatus',
+        statusKey: 'wechat-messages',
+        statusText: JSON.stringify(conversations),
+      },
+    });
+    expect(useImMessagesStore.getState().conversations).toEqual(conversations);
+  });
+
+  it('ignores malformed wechat-messages payload without throwing', () => {
+    render(<ExtensionUiHost />);
+    emit({
+      workspace: '/ws',
+      request: { id: 'wm2', method: 'setStatus', statusKey: 'wechat-messages', statusText: '{not json' },
+    });
+    expect(useImMessagesStore.getState().conversations).toEqual([]);
   });
 
   it('parses setStatus(goal) JSON into the goal store', () => {

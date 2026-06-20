@@ -56,6 +56,11 @@ export const cardStyles = createStaticStyles(({ css }) => ({
     font-family: ${cssVar.fontFamilyCode};
     color: ${cssVar.colorTextSecondary};
   `,
+  // 技能名：与输入框/消息里的技能 chip 同色（紫色），让「调用技能」一眼可辨。
+  skillName: css`
+    color: ${cssVar.purple};
+    font-weight: 500;
+  `,
   paramKey: css`
     font-family: ${cssVar.fontFamilyCode};
     color: ${cssVar.colorTextTertiary};

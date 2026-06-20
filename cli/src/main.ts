@@ -22,7 +22,18 @@ import {
   runRpcMode,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import { allExtensions } from "../../extensions/index.js";
+import { allExtensions, safety } from "../../extensions/index.js";
+import { getConfig, watchConfig } from "../../extensions/_shared/runtime-config.js";
+
+// Distinctive startup marker on stderr. The Tauri backend (pi/sidecar.rs) probes
+// for it after spawn: if absent, the spawned `pi` is likely a plain upstream
+// binary WITHOUT our compiled-in guardrails (safety/permission/sandbox), so the
+// backend warns loudly. `safety=on` additionally confirms the security extension
+// is in the bundle (it is, by static import — this is a tripwire, not a gate).
+function emitReadyBanner(): void {
+  const safetyOn = allExtensions.includes(safety);
+  console.error(`[grenagent-sidecar] ready ext=${allExtensions.length} safety=${safetyOn ? "on" : "OFF"}`);
+}
 
 // On shutdown the parent (Tauri) closes the stdio/RPC pipe; in-flight writes then
 // fail with EPIPE. A broken pipe means the parent is gone, so the sidecar should
@@ -53,9 +64,11 @@ function bareSkillName(name: string): string {
 }
 
 // Skills the user disabled in the GUI (comma-separated names via SKILLS_DISABLED).
+// Read at call time from the runtime config (falls back to env) so a session
+// reload picks up live toggles without restarting the sidecar.
 function disabledSkills(): Set<string> {
   return new Set(
-    (process.env.SKILLS_DISABLED ?? "")
+    (getConfig("SKILLS_DISABLED") ?? "")
       .split(",")
       .map((s) => bareSkillName(s.trim()))
       .filter(Boolean),
@@ -65,7 +78,6 @@ function disabledSkills(): Set<string> {
 const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
   const authStorage = AuthStorage.create();
   const modelRegistry = ModelRegistry.create(authStorage);
-  const disabled = disabledSkills();
 
   const services = await createAgentSessionServices({
     cwd,
@@ -74,13 +86,16 @@ const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, agentDir, 
     modelRegistry,
     resourceLoaderOptions: {
       extensionFactories: allExtensions,
-      skillsOverride:
-        disabled.size === 0
-          ? undefined
-          : (base) => ({
-              skills: base.skills.filter((s) => !disabled.has(bareSkillName(s.name))),
-              diagnostics: base.diagnostics,
-            }),
+      // Provided unconditionally so every resourceLoader.reload() re-reads the live
+      // disabled list — GUI skill toggles take effect on reload, no sidecar restart.
+      skillsOverride: (base) => {
+        const disabled = disabledSkills();
+        if (disabled.size === 0) return base;
+        return {
+          skills: base.skills.filter((s) => !disabled.has(bareSkillName(s.name))),
+          diagnostics: base.diagnostics,
+        };
+      },
     },
   });
 
@@ -93,6 +108,8 @@ const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, agentDir, 
 
 async function run(): Promise<void> {
   const argv = process.argv.slice(2);
+
+  emitReadyBanner();
 
   // 一次性探测子命令（管理面板「测试连接」用）：不启动 pi 运行时，仅连 MCP server 取工具名。
   if (argv[0] === "probe-mcp") {
@@ -123,6 +140,43 @@ async function run(): Promise<void> {
       agentDir: getAgentDir(),
       sessionManager: SessionManager.create(cwd),
     });
+
+    // Resource hot-reload: the GUI bumps PI_RELOAD_REV in runtime-settings.json on
+    // changes that need extensions/skills re-evaluated (skill toggle/create/delete/
+    // import, explore_context toggle). On change, reload the session's resources +
+    // system prompt in place via AgentSession.reload() — no sidecar restart,
+    // conversation preserved. Deferred to idle so an in-flight turn isn't interrupted.
+    // (MCP servers and the code-intel engine hot-reload via the mcp manager's own
+    // watch, so they don't need a session reload.)
+    let lastReloadRev = getConfig("PI_RELOAD_REV") ?? "";
+    let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+    const reloadResources = (): void => {
+      const session = runtime.session;
+      const doReload = (): Promise<void> =>
+        runtime.session.reload().catch((e) => {
+          console.error("[reload] session reload failed:", e);
+        });
+      if (!session.isStreaming) {
+        void doReload();
+        return;
+      }
+      // Mid-turn: wait for the current turn to finish, then reload once.
+      const unsub = session.subscribe((ev) => {
+        if (ev.type === "agent_end" && !ev.willRetry) {
+          unsub();
+          void doReload();
+        }
+      });
+    };
+    const unwatchReload = watchConfig((next) => {
+      const rev = next.PI_RELOAD_REV ?? "";
+      if (rev === lastReloadRev) return;
+      lastReloadRev = rev;
+      if (reloadTimer) clearTimeout(reloadTimer);
+      reloadTimer = setTimeout(reloadResources, 150);
+    });
+    process.on("exit", () => unwatchReload());
+
     await runRpcMode(runtime);
     return;
   }

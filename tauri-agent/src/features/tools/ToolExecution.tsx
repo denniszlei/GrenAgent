@@ -1,6 +1,6 @@
 import { Accordion, AccordionItem, Block, Flexbox, Icon, ScrollArea } from '@lobehub/ui';
 import { cssVar, cx } from 'antd-style';
-import { Check, ChevronRight, Copy, Search } from 'lucide-react';
+import { Check, ChevronRight, Copy, Search, Sparkles } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { LazyHighlighter } from './LazyHighlighter';
@@ -15,6 +15,7 @@ import {
   getDetails,
   getDiff,
   langByPath,
+  skillNameFromRead,
   stringifyJson,
   toolMeta,
 } from './toolUtils';
@@ -80,6 +81,20 @@ function ToolInspector({
   status: ToolExecutionProps['status'];
 }) {
   const styles = cardStyles;
+
+  // 模型用 read 读 SKILL.md = 调用技能：读作「使用技能 <技能名>」，配技能图标(Sparkles)。
+  const skillName = skillNameFromRead(toolName, args);
+  if (skillName) {
+    return (
+      <Flexbox horizontal align="center" gap={6} style={{ minWidth: 0, flex: 1 }}>
+        <StatusIndicator status={status} />
+        <Icon icon={Sparkles} size={14} />
+        <div className={styles.inspectorTitle}>
+          使用技能 <span className={styles.skillName}>{skillName}</span>
+        </div>
+      </Flexbox>
+    );
+  }
 
   // web_search / search：读作「搜索：<高亮查询词>（N）」。
   if (toolName.toLowerCase() === 'web_search' || toolName.toLowerCase() === 'search') {

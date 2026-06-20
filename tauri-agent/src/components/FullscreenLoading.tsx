@@ -24,6 +24,7 @@ export function FullscreenLoading({ visible }: FullscreenLoadingProps) {
   return (
     <Flexbox
       align="center"
+      data-tauri-drag-region
       data-testid="fullscreen-loading"
       gap={22}
       justify="center"
@@ -40,7 +41,8 @@ export function FullscreenLoading({ visible }: FullscreenLoadingProps) {
         zIndex: 9999,
       }}
     >
-      <div style={{ color: 'var(--gren-acc, #4c8bf5)' }}>
+      {/* 内容设 pointer-events:none，让点击/拖动穿透到带 drag-region 的容器，整屏可拖窗口。 */}
+      <div style={{ color: 'var(--gren-acc, #4c8bf5)', pointerEvents: 'none' }}>
         <BrandLoading size={88} text={PiBrandLogo} />
       </div>
       <div
@@ -49,6 +51,7 @@ export function FullscreenLoading({ visible }: FullscreenLoadingProps) {
           fontSize: 14,
           fontWeight: 500,
           letterSpacing: 5,
+          pointerEvents: 'none',
         }}
       >
         GREN<span style={{ color: 'var(--gren-fg, #e6e8ec)' }}>AGENT</span>

@@ -457,14 +457,18 @@ const ImageThumb: FC<{ workspace: string; path: string; w: number; h: number }> 
     return <div className={genImageStyles.skeleton} style={{ width: w, height: h }} />;
   }
   return (
-    <Image
-      alt={basename(path)}
-      src={src}
-      maxWidth={w}
-      maxHeight={h}
-      classNames={{ wrapper: genImageStyles.imgWrap, image: genImageStyles.imgZoom }}
-      onError={bumpRetry}
-    />
+    // 包一层 draggable，让带预览遮罩的 antd Image 也能被拖起（遮罩与 img 是兄弟节点，
+    // 没有 draggable 祖先时拖拽根本起不来）；拖到输入框即作为图片附件插入。
+    <div draggable style={{ display: 'inline-flex', cursor: 'grab' }}>
+      <Image
+        alt={basename(path)}
+        src={src}
+        maxWidth={w}
+        maxHeight={h}
+        classNames={{ wrapper: genImageStyles.imgWrap, image: genImageStyles.imgZoom }}
+        onError={bumpRetry}
+      />
+    </div>
   );
 };
 
@@ -504,11 +508,24 @@ const KbAddCard: FC<ExtensionCardProps> = ({ result }) => {
   );
 };
 
-const MemoryCard: FC<ExtensionCardProps> = ({ toolName, result }) => {
+const MemoryCard: FC<ExtensionCardProps> = ({ toolName, result, status }) => {
   const d = getDetails(result);
   const text = extractText(result);
   if (toolName === 'memory_save') {
     const category = asString(d?.category);
+    // 失败（embedding 未配 / 网络等）时不能谎报「已保存」：按错误态显示并附错误首行。
+    // 之前固定渲染「已保存」，即使工具红叉也照样写——与实际不符。
+    if (status === 'error') {
+      const brief = text.split('\n')[0];
+      return (
+        <Flexbox horizontal align="center" gap={6} data-testid="card-memory_save">
+          <Icon icon={Brain} size={14} />
+          <span style={{ fontSize: 12, color: cssVar.colorError }}>
+            记忆保存失败{brief ? `：${brief}` : ''}
+          </span>
+        </Flexbox>
+      );
+    }
     return (
       <Flexbox horizontal align="center" gap={6} data-testid="card-memory_save">
         <Icon icon={Brain} size={14} />

@@ -9,6 +9,7 @@ const border = '1px solid var(--gren-border, rgba(255,255,255,0.08))';
 
 // 代码沙箱（WSL2 + @anthropic-ai/sandbox-runtime）就绪状态 + 一键引导安装。
 // 未就绪时受限/无主人会话回退「仅对话」；就绪后可在隔离环境执行（写限 workspace、网络默认禁）。
+// 归属「安全」设置分类（沙箱是隔离执行的安全能力），由 SettingsPanel 在 safety 分类渲染。
 export function SandboxCard() {
   const [status, setStatus] = useState<SandboxStatus | null>(null);
   const [busy, setBusy] = useState(false);

@@ -1,7 +1,26 @@
-# Tauri + Vanilla TS
+# grenagent-app
 
-This template should help get you started developing with Tauri in vanilla HTML, CSS and Typescript.
+GrenAgent 桌面应用：React 19 + TypeScript + Vite 前端，Tauri 2 与 Rust 后端。项目整体介绍见仓库根目录的 [README](../README.md)，架构与开发细节见 [架构文档](../docs/architecture.md) 与 [开发指南](../docs/development.md)。
 
-## Recommended IDE Setup
+## 开发
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+```bash
+npm install
+npm run dev          # 前端开发服务器
+npm run tauri dev    # 桌面端（Tauri + Rust）
+```
+
+## 构建
+
+```bash
+npm run build            # tsc && vite build
+npm run build:sidecar    # 构建 Agent sidecar 二进制
+npm run build:codegraph  # 构建 CodeGraph 二进制
+```
+
+## 验证
+
+```bash
+npx tsc --noEmit
+npm run test
+```

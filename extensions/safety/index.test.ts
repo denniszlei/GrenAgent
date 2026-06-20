@@ -18,6 +18,14 @@ function setup(): ToolCall {
   return (event, ctx) => handler!(event, ctx);
 }
 
+type BeforeStart = () => Promise<{ message?: { content?: string; display?: boolean } } | undefined>;
+function setupBeforeStart(): BeforeStart {
+  let handler: BeforeStart | undefined;
+  const pi = { on: (ev: string, h: BeforeStart) => { if (ev === "before_agent_start") handler = h; } };
+  safety(pi as unknown as Parameters<typeof safety>[0]);
+  return handler!;
+}
+
 const cwd = process.platform === "win32" ? "D:\\proj" : "/proj";
 
 beforeEach(() => {
@@ -147,5 +155,27 @@ describe("safety approval gating", () => {
     const ui = { select: vi.fn().mockResolvedValue("拒绝") };
     const r = await setup()({ toolName: "dap_launch", input: { program: "x.py" } }, { hasUI: true, cwd, ui });
     expect(r?.block).toBe(true);
+  });
+});
+
+describe("safety sandbox hint (before_agent_start)", () => {
+  it("沙箱开启 + 非 full：注入工具约束提示（引导 sandbox_sh / read，不撞 bash 禁用）", async () => {
+    vi.mocked(getApprovalPolicy).mockReturnValue("ask");
+    vi.mocked(sandboxOn).mockResolvedValue(true);
+    const r = await setupBeforeStart()();
+    expect(r?.message?.content).toContain("sandbox_sh");
+    expect(r?.message?.display).toBe(false);
+  });
+
+  it("full：不注入（完全访问无沙箱限制）", async () => {
+    vi.mocked(getApprovalPolicy).mockReturnValue("full");
+    vi.mocked(sandboxOn).mockResolvedValue(true);
+    expect(await setupBeforeStart()()).toBeUndefined();
+  });
+
+  it("沙箱关闭：不注入", async () => {
+    vi.mocked(getApprovalPolicy).mockReturnValue("ask");
+    vi.mocked(sandboxOn).mockResolvedValue(false);
+    expect(await setupBeforeStart()()).toBeUndefined();
   });
 });

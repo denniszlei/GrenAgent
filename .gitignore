@@ -32,3 +32,8 @@ output/
 # Windows junk
 nul
 .pi/
+
+# Local embedding model weights (download on first run)
+/embedding/.models/
+/embedding/vector-service.exe
+/embedding/dist/

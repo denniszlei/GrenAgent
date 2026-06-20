@@ -342,6 +342,28 @@ fn extract_mermaid(text: &str) -> String {
     t.to_string()
 }
 
+/// OpenAI chat/completions 的 message.content 可能是 string，也可能是
+/// `[{ "type": "text", "text": "..." }]` 数组（新版 API / 部分代理）。
+fn extract_openai_message_content(message: &serde_json::Value) -> Option<String> {
+    let content = message.get("content")?;
+    if let Some(s) = content.as_str() {
+        return Some(s.to_string());
+    }
+    let arr = content.as_array()?;
+    let mut acc = String::new();
+    for part in arr {
+        if let Some(t) = part.get("text").and_then(|t| t.as_str()) {
+            acc.push_str(t);
+        } else if let Some(s) = part.as_str() {
+            acc.push_str(s);
+        }
+    }
+    if acc.is_empty() {
+        return None;
+    }
+    Some(acc)
+}
+
 /// 按 provider 的 api 类型发一次「非流式」补全请求，返回模型输出的纯文本。
 /// 复用 models.json 里该 provider 的 baseUrl / apiKey / headers，端点与鉴权按 api 区分：
 /// - anthropic-messages: POST {base}/v1/messages，x-api-key + anthropic-version
@@ -496,14 +518,13 @@ async fn call_llm_oneshot(
                     acc
                 })
             }),
-        _ => v
-            .get("choices")
-            .and_then(|c| c.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|c| c.get("message"))
-            .and_then(|m| m.get("content"))
-            .and_then(|c| c.as_str())
-            .map(|s| s.to_string()),
+        _ => extract_openai_message_content(
+            v.get("choices")
+                .and_then(|c| c.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|c| c.get("message"))
+                .unwrap_or(&serde_json::Value::Null),
+        ),
     };
 
     let content = content.unwrap_or_default();
@@ -565,7 +586,16 @@ pub async fn fix_mermaid_diagram(
     }
 
     // 3. 发非流式请求并抽取 mermaid 代码。
-    let system = "You are a Mermaid diagram syntax repair tool. The user provides a Mermaid diagram source that failed to render along with the error message. Reply with ONLY the corrected Mermaid source wrapped in a single ```mermaid fenced code block. Fix only the syntax errors and preserve the original intent. Do not include any explanation.";
+    // prompt 显式列出最常见的 mermaid 报错根因（标签里的特殊字符 / 裸引号），否则模型常原样产出
+    // 同样会再次解析失败的代码（即「AI 修复后仍渲染失败」）。
+    let system = r#"You are a Mermaid diagram syntax repair tool. The user provides a Mermaid diagram source that failed to render plus the error message. Reply with ONLY the corrected Mermaid source wrapped in a single ```mermaid fenced code block — no explanation. Preserve the original intent, language, and diagram type.
+
+Most render failures come from labels. Apply these rules:
+1. If a node or edge label contains any of these characters: " [ ] ( ) { } | : ; # < > or a slash, wrap the WHOLE label in double quotes, e.g. A["text (x)"] or A -->|"a/b"| B.
+2. To show a literal double-quote INSIDE a label, write the entity #quot; — never leave a raw double-quote in the middle of a label. e.g. A["he said #quot;hi#quot;"].
+3. Node ids must be simple (letters, digits, underscore) with no spaces or punctuation; move any such text into the quoted label instead.
+4. Use <br/> for line breaks inside labels, not real newlines.
+5. Change as little as possible beyond fixing the error."#;
     let user = format!(
         "The Mermaid diagram failed to render.\n\nError:\n{error}\n\nOriginal Mermaid source:\n```mermaid\n{code}\n```\n\nReturn the corrected Mermaid source."
     );
@@ -811,6 +841,25 @@ mod tests {
             extract_mermaid("  flowchart TD\n  A-->B  "),
             "flowchart TD\n  A-->B"
         );
+    }
+
+    #[test]
+    fn extract_openai_message_content_string() {
+        let msg = serde_json::json!({ "content": "hello" });
+        assert_eq!(
+            extract_openai_message_content(&msg).as_deref(),
+            Some("hello")
+        );
+    }
+
+    #[test]
+    fn extract_openai_message_content_array() {
+        let msg = serde_json::json!({
+            "content": [{ "type": "text", "text": "```mermaid\nflowchart TD\n  A-->B\n```" }]
+        });
+        assert!(extract_openai_message_content(&msg)
+            .unwrap()
+            .contains("flowchart TD"));
     }
 
     #[test]

@@ -24,8 +24,13 @@ afterEach(() => {
   revealItemInDir.mockReset();
 });
 
-function renderCard(toolName: string, result: unknown, args: unknown = {}) {
-  const node = renderExtensionCard({ toolName, args, result, status: 'done' });
+function renderCard(
+  toolName: string,
+  result: unknown,
+  args: unknown = {},
+  status: 'running' | 'done' | 'error' = 'done',
+) {
+  const node = renderExtensionCard({ toolName, args, result, status });
   return render(<>{node}</>);
 }
 
@@ -51,6 +56,18 @@ describe('renderExtensionCard', { timeout: 30_000 }, () => {
   it('memory_save shows scope', () => {
     renderCard('memory_save', { content: [], details: { id: 'm1', scope: 'global', category: 'preference' } });
     expect(screen.getByTestId('card-memory_save').textContent).toContain('全局');
+  });
+
+  it('memory_save 失败态显示「保存失败」而非谎报已保存', () => {
+    renderCard(
+      'memory_save',
+      { content: [{ type: 'text', text: 'Memory service unavailable due to network issues' }] },
+      {},
+      'error',
+    );
+    const card = screen.getByTestId('card-memory_save');
+    expect(card.textContent).toContain('失败');
+    expect(card.textContent).not.toContain('已保存');
   });
 
   it('memory_recall renders recall card', () => {

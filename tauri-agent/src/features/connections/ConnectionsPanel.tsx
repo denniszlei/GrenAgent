@@ -1,12 +1,12 @@
 import { Button, Flexbox, Icon } from '@lobehub/ui';
 import { Modal, Switch } from 'antd';
 import { cssVar } from 'antd-style';
-import { MessageSquare, Settings2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, MessageSquare, Settings2 } from 'lucide-react';
+import { type CSSProperties, useEffect, useState } from 'react';
+import { useImMessagesStore } from '../../stores/imMessagesStore';
 import { useWechatStatusStore } from '../../stores/wechatStatusStore';
-import { SandboxCard } from './SandboxCard';
 import { SettingFieldInput } from '../settings/SettingField';
-import { GATEWAY_FIELDS, WECHAT_FIELDS } from '../settings/settingsSchema';
+import { WECHAT_FIELDS } from '../settings/settingsSchema';
 import { useSettingsForm } from '../settings/useSettingsForm';
 
 const muted = 'var(--gren-fg-muted, #9aa1ac)';
@@ -14,35 +14,31 @@ const border = '1px solid var(--gren-border, rgba(255,255,255,0.08))';
 
 const isOn = (v: string | undefined): boolean => v === '1' || v?.toLowerCase() === 'true';
 
+// 对话气泡：用户消息靠右、主色实底；助手回复靠左、表面色。只读镜像，不可编辑。
+const bubbleStyle = (role: 'user' | 'assistant'): CSSProperties => ({
+  alignSelf: role === 'user' ? 'flex-end' : 'flex-start',
+  maxWidth: '82%',
+  padding: '6px 10px',
+  borderRadius: 9,
+  fontSize: 12,
+  lineHeight: 1.5,
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+  background: role === 'user' ? cssVar.colorPrimary : 'var(--gren-surface, rgba(255,255,255,0.06))',
+  color: role === 'user' ? '#fff' : 'inherit',
+});
+
 // 网络配置项（齿轮弹窗）= 微信字段去掉「启用」开关本身（启用由卡片上的接入开关控制）。
 const WECHAT_SETTING_FIELDS = WECHAT_FIELDS.filter((f) => f.key !== 'WECHAT_OC_ENABLE');
-
-const GATEWAY_PLATFORMS = [
-  { name: 'Slack', hint: '用 Slack Events API/Bolt 适配器把消息 POST 到网关 /message，回复回 replyUrl。' },
-  { name: '飞书 / Feishu', hint: '用飞书机器人回调把消息转发到网关 /message。' },
-  { name: 'Telegram', hint: '用 Telegram Bot webhook 把消息转发到网关 /message。' },
-];
 
 export function ConnectionsPanel() {
   const { values, setValue, persist, saving, loading, error } = useSettingsForm();
   const wechat = useWechatStatusStore((s) => s.wechat);
+  const conversations = useImMessagesStore((s) => s.conversations);
   const [qrOpen, setQrOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-
-  // 网关字段改动后防抖自动落盘（写 runtime-settings.json → sidecar 热重连），无需重启。
-  const touchedRef = useRef(false);
-  const persistRef = useRef(persist);
-  persistRef.current = persist;
-  useEffect(() => {
-    if (loading || !touchedRef.current) return;
-    const timer = window.setTimeout(() => void persistRef.current(), 600);
-    return () => window.clearTimeout(timer);
-  }, [values.IM_GATEWAY, values.IM_GATEWAY_PORT, values.IM_GATEWAY_TOKEN, loading]);
-
-  const setGatewayField = (key: string, v: string) => {
-    touchedRef.current = true;
-    setValue(key, v);
-  };
+  const [msgsOpen, setMsgsOpen] = useState(false);
+  const totalMessages = conversations.reduce((n, c) => n + c.messages.length, 0);
 
   // 登录成功后短暂展示再自动关闭扫码弹窗。
   useEffect(() => {
@@ -61,11 +57,18 @@ export function ConnectionsPanel() {
         : '连接中…';
   const wechatColor = wechat.loggedIn ? cssVar.colorSuccess : wechatEnabled ? cssVar.colorWarning : muted;
 
+  // 仅在后端真正进入「待扫码」时自动弹二维码：已绑定（持久 token）开启会直接登录，不该弹扫码窗。
+  useEffect(() => {
+    if (wechatEnabled && !wechat.loggedIn && wechat.status === 'waiting-scan' && wechat.qrLink) {
+      setQrOpen(true);
+    }
+  }, [wechatEnabled, wechat.loggedIn, wechat.status, wechat.qrLink]);
+
   // 接入开关与网络配置：均热更新（persist 写盘 → sidecar watchConfig 重连），无需重启。
   const toggleWechat = async (on: boolean) => {
     setValue('WECHAT_OC_ENABLE', on ? '1' : '0');
     await persist();
-    if (on) setQrOpen(true);
+    // 不再无条件弹扫码：已绑定（持久 token）开启会直接登录；仅当后端真正 waiting-scan 时由上方 effect 弹窗。
   };
   const saveWechatSettings = async () => {
     await persist();
@@ -135,36 +138,62 @@ export function ConnectionsPanel() {
               {wechat.qrLink ? '显示登录二维码' : '获取二维码中…'}
             </button>
           ) : null}
-        </Flexbox>
 
-        {GATEWAY_PLATFORMS.map((p) => (
-          <Flexbox key={p.name} gap={3} style={{ border, borderRadius: 10, padding: '11px 13px', marginBlockEnd: 10 }}>
-            <Flexbox horizontal align="center" gap={8}>
-              <span style={{ fontSize: 13, flex: 1 }}>{p.name}</span>
-              <span style={{ fontSize: 11, color: muted }}>未配置</span>
+          {/* 微信会话只读镜像：微信启用即常驻入口，无消息给空态。主人会话不含微信流量，这里是 UI 唯一能看到「微信聊了什么」的地方 */}
+          {wechatEnabled ? (
+            <Flexbox gap={6} style={{ marginInlineStart: 26, marginBlockStart: 2 }}>
+              <button
+                type="button"
+                data-testid="wechat-msgs-toggle"
+                onClick={() => setMsgsOpen((v) => !v)}
+                style={{
+                  alignSelf: 'flex-start',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: 0,
+                  border: 'none',
+                  background: 'transparent',
+                  color: muted,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                <Icon icon={msgsOpen ? ChevronDown : ChevronRight} size={12} />
+                微信会话记录（{totalMessages}）
+              </button>
+              {msgsOpen ? (
+                totalMessages > 0 ? (
+                  <Flexbox
+                    gap={12}
+                    data-testid="wechat-msgs"
+                    style={{ maxHeight: 300, overflowY: 'auto', paddingInlineEnd: 4 }}
+                  >
+                    {conversations.map((conv) => (
+                      <Flexbox key={conv.user} gap={6}>
+                        {conversations.length > 1 ? (
+                          <span style={{ fontSize: 10, color: muted, alignSelf: 'center' }}>{conv.user}</span>
+                        ) : null}
+                        {conv.messages.map((m, i) => (
+                          <div key={`${conv.user}-${i}`} style={bubbleStyle(m.role)}>
+                            {m.text}
+                          </div>
+                        ))}
+                      </Flexbox>
+                    ))}
+                  </Flexbox>
+                ) : (
+                  <span
+                    data-testid="wechat-msgs-empty"
+                    style={{ fontSize: 12, color: muted, paddingBlock: 2 }}
+                  >
+                    暂无微信会话；微信登录后，收发的消息会镜像到这里。
+                  </span>
+                )
+              ) : null}
             </Flexbox>
-            <span style={{ fontSize: 11, color: muted }}>{p.hint}</span>
-          </Flexbox>
-        ))}
-
-        {/* 通用 IM 网关：HTTP webhook，供上面这些平台经薄适配器转发。改动自动保存、热生效。 */}
-        <div style={{ fontSize: 13, fontWeight: 600, margin: '14px 0 8px' }}>通用 IM 网关（webhook）</div>
-        <div style={{ fontSize: 12, color: muted, marginBlockEnd: 10 }}>
-          <code>POST /message {'{ text, replyUrl? }'}</code>；改动自动保存、即时生效（无需重启）。
-        </div>
-        {GATEWAY_FIELDS.map((f) => (
-          <SettingFieldInput
-            key={f.key}
-            field={f}
-            value={values[f.key] ?? ''}
-            onChange={(v) => setGatewayField(f.key, v)}
-            testIdPrefix="conn-field"
-          />
-        ))}
-
-        {/* 执行沙箱：受限/无主人会话在隔离环境跑命令/代码的就绪状态与一键安装 */}
-        <div style={{ fontSize: 13, fontWeight: 600, margin: '14px 0 8px' }}>执行沙箱（WSL2）</div>
-        <SandboxCard />
+          ) : null}
+        </Flexbox>
       </div>
 
       {/* 扫码弹窗 */}

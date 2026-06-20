@@ -7,6 +7,7 @@ import { SettingFieldInput } from './SettingField';
 import { useSettingsForm } from './useSettingsForm';
 import { AppearanceSettings } from './AppearanceSettings';
 import { ProvidersSettings } from './ProvidersSettings';
+import { SandboxCard } from './SandboxCard';
 import { CapabilityModelField } from './CapabilityModelField';
 import { migratePhase2 } from './phase2Migration';
 import { pi } from '../../lib/pi';
@@ -178,22 +179,30 @@ export function SettingsPanel() {
                   {activeId === 'appearance' ? (
                     <AppearanceSettings />
                   ) : (
-                    sections.map((sec, i) => (
-                      <SettingCard key={sec.title || i} title={sec.title || undefined}>
-                        {sec.fields.map((f) =>
-                          f.type === 'capability' ? (
-                            <CapabilityModelField key={f.key} field={f} values={values} setValue={setValue} />
-                          ) : (
-                            <SettingFieldInput
-                              key={f.key}
-                              field={f}
-                              value={values[f.key] ?? ''}
-                              onChange={(v) => setValue(f.key, v)}
-                            />
-                          ),
-                        )}
-                      </SettingCard>
-                    ))
+                    <>
+                      {sections.map((sec, i) => (
+                        <SettingCard key={sec.title || i} title={sec.title || undefined}>
+                          {sec.fields.map((f) =>
+                            f.type === 'capability' ? (
+                              <CapabilityModelField key={f.key} field={f} values={values} setValue={setValue} />
+                            ) : (
+                              <SettingFieldInput
+                                key={f.key}
+                                field={f}
+                                value={values[f.key] ?? ''}
+                                onChange={(v) => setValue(f.key, v)}
+                              />
+                            ),
+                          )}
+                        </SettingCard>
+                      ))}
+                      {/* 沙箱是隔离执行的安全能力，归「安全」分类（原误放在 IM 连接面板）。 */}
+                      {activeId === 'safety' ? (
+                        <SettingCard title="执行沙箱（WSL2）">
+                          <SandboxCard />
+                        </SettingCard>
+                      ) : null}
+                    </>
                   )}
                 </div>
               </div>

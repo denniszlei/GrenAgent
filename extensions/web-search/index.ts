@@ -1,4 +1,4 @@
-// web-search: open-webSearch 能力内置版 — 多引擎 search + 站点/文章抓取工具。
+// web-search: open-webSearch 能力内置版 — 多引擎联网搜索（web_search / web_search_multi）+ 站点/文章抓取工具。
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -274,7 +274,7 @@ export default function (pi: ExtensionAPI) {
     name: "web_search",
     label: "Web Search",
     description:
-      "Search the web with zero-config fallback (Bing → Sogou → Baidu). Use search for multi-engine control, or fetch_* tools for full article bodies.",
+      "Search the web with zero-config fallback (Bing → Sogou → Baidu). Use web_search_multi for multi-engine control, or fetch_* tools for full article bodies.",
     promptSnippet: "Search the web; returns summary + result links.",
     parameters: Type.Object({
       query: Type.String({ description: "Search query" }),
@@ -330,9 +330,9 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // open-webSearch 同名多引擎 search 工具
+  // open-webSearch 多引擎联网搜索工具。原名 search，与 batch-tools 的本地代码检索 search 同名冲突，故改名 web_search_multi。
   pi.registerTool({
-    name: "search",
+    name: "web_search_multi",
     label: "Multi-Engine Search",
     description:
       "Search the web using one or more built-in engines (bing, baidu, sogou, csdn, juejin, exa, linuxdo, duckduckgo). No API key required.",

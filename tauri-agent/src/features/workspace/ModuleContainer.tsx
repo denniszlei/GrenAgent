@@ -1,31 +1,22 @@
 import type { ReactNode } from 'react';
 import { useModuleStore, type ModuleId } from '../../stores/moduleStore';
-import { KnowledgePanel } from '../knowledge/KnowledgePanel';
 import { MemoryPanel } from '../memory/MemoryPanel';
-import { ReviewPanel } from '../review/ReviewPanel';
 import { SettingsPanel } from '../settings/SettingsPanel';
 import { ConnectionsPanel } from '../connections/ConnectionsPanel';
 import { ExtensionsPanel } from '../extensions/ExtensionsPanel';
-import { CheckpointsPanel } from '../checkpoints/CheckpointsPanel';
 import { UsagePanel } from '../usage/UsagePanel';
 
-/** 非 chat 模块面板：相对较轻，按需挂载/卸载即可。 */
+/** 全局模块面板（应用级，或以全局数据为主）：相对较轻，按需挂载/卸载即可。 */
 function ActivePanel({ module }: { module: ModuleId }) {
   switch (module) {
-    case 'knowledge':
-      return <KnowledgePanel />;
     case 'memory':
       return <MemoryPanel />;
-    case 'review':
-      return <ReviewPanel />;
     case 'settings':
       return <SettingsPanel />;
     case 'connections':
       return <ConnectionsPanel />;
     case 'extensions':
       return <ExtensionsPanel />;
-    case 'checkpoints':
-      return <CheckpointsPanel />;
     case 'usage':
       return <UsagePanel />;
     default:

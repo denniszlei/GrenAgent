@@ -94,6 +94,40 @@ describe("MemoryStore smart ops", () => {
     expect(s.getById(id)?.text).toBe("keep me");
   });
 
+  it("clear records DELETE history so a cleared memory can be rolled back (restored)", async () => {
+    const s = newStore();
+    const { id } = await s.insert("survives clear", "preference", OFF, "init");
+    s.clear();
+    expect(s.getById(id)).toBeUndefined();
+    const delRow = s.history(id).find((r) => r.op === "DELETE" && r.reason === "clear")!;
+    expect(delRow).toBeTruthy();
+    await s.rollback(delRow.historyId, OFF);
+    expect(s.getById(id)?.text).toBe("survives clear");
+  });
+
+  it("clearHistory wipes the audit ledger without touching memories", async () => {
+    const s = newStore();
+    const { id } = await s.insert("keep me", "preference", OFF, "init");
+    await s.update(id, { text: "keep me v2" }, OFF, "edit");
+    expect(s.history(id).length).toBeGreaterThan(0);
+    const removed = s.clearHistory();
+    expect(removed).toBeGreaterThan(0);
+    expect(s.history(id)).toHaveLength(0);
+    expect(s.history()).toHaveLength(0);
+    // memories themselves are untouched.
+    expect(s.getById(id)?.text).toBe("keep me v2");
+  });
+
+  it("rollback of an ADD whose memory is already gone is a no-op (returns undefined)", async () => {
+    const s = newStore();
+    const { id } = await s.insert("transient", null, OFF, "init");
+    const addRow = s.history(id).find((r) => r.op === "ADD")!;
+    s.forget(id); // 硬删（不记历史），模拟「记忆已不存在」
+    const r = await s.rollback(addRow.historyId, OFF);
+    expect(r).toBeUndefined();
+    expect(s.getById(id)).toBeUndefined();
+  });
+
   it("migrates a legacy db (reopen) without data loss", async () => {
     const dir = mkdtempSync(join(tmpdir(), "memtest-legacy-"));
     dirs.push(dir);

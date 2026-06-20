@@ -33,4 +33,25 @@ describe('parseMessageTags', () => {
   it('returns a single text segment when there is no mention', () => {
     expect(parseMessageTags('plain text')).toEqual([{ type: 'text', text: 'plain text' }]);
   });
+
+  it('collapses an expanded <skill> block to a skill segment', () => {
+    const text =
+      '<skill name="caveman" location="C:\\Users\\me\\.agents\\skills\\caveman\\SKILL.md">\nUltra-compressed.\n\n## Rules\nbe brief.\n</skill>';
+    expect(parseMessageTags(text)).toEqual([{ type: 'skill', name: 'caveman' }]);
+  });
+
+  it('renders an optimistic /skill:name command as a skill segment', () => {
+    expect(parseMessageTags('/skill:caveman')).toEqual([{ type: 'skill', name: 'caveman' }]);
+  });
+
+  it('strips a skill: prefix from the expanded block name', () => {
+    const text = '<skill name="skill:caveman" location="x">body</skill>';
+    expect(parseMessageTags(text)).toEqual([{ type: 'skill', name: 'caveman' }]);
+  });
+
+  it('keeps trailing args after a skill block as text', () => {
+    const segs = parseMessageTags('<skill name="review" location="x">body</skill> 然后帮我改');
+    expect(segs[0]).toEqual({ type: 'skill', name: 'review' });
+    expect(segs[1]).toEqual({ type: 'text', text: ' 然后帮我改' });
+  });
 });

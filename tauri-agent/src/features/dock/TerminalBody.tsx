@@ -32,9 +32,19 @@ export function TerminalBody({ tab, active }: DockBodyProps) {
   );
 
   const write = useCallback((data: string) => {
-    const normalized = data.replace(/\r?\n/g, '\r\n');
-    if (termRef.current) termRef.current.write(normalized);
-    else pendingRef.current.push(normalized);
+    // 原始 PTY 流原样写入：TUI 的光标定位/换行靠转义序列，二次改写字节会错位。
+    if (termRef.current) termRef.current.write(data);
+    else pendingRef.current.push(data);
+  }, []);
+
+  // 把 xterm 当前行列同步给 PTY，否则 TUI 按 PTY 的旧尺寸作画 → 错位花屏。
+  const syncPtySize = useCallback(() => {
+    const term = termRef.current;
+    const sid = shellIdRef.current;
+    if (!term || !sid) return;
+    void terminal.shellResize(sid, term.rows, term.cols).catch(() => {
+      /* resize 失败不致命，忽略 */
+    });
   }, []);
 
   // fit 前确认容器有尺寸：keep-alive 的隐藏 tab 是 display:none（0 尺寸），此时 xterm
@@ -46,10 +56,11 @@ export function TerminalBody({ tab, active }: DockBodyProps) {
     if (host.clientWidth === 0 || host.clientHeight === 0) return;
     try {
       fit.fit();
+      syncPtySize();
     } catch {
       /* 尺寸异常时 xterm 偶发抛错，吞掉避免整页崩 */
     }
-  }, []);
+  }, [syncPtySize]);
 
   // 创建 xterm（仅一次），卸载时销毁。
   useEffect(() => {
@@ -57,7 +68,6 @@ export function TerminalBody({ tab, active }: DockBodyProps) {
     if (!host || termRef.current) return;
     const term = new XTerm({
       allowTransparency: false,
-      convertEol: true,
       cursorBlink: true,
       cursorInactiveStyle: 'outline',
       cursorStyle: 'block',
@@ -106,6 +116,8 @@ export function TerminalBody({ tab, active }: DockBodyProps) {
         }
         shellIdRef.current = session_id;
         setTerminalStatus(tab.id, 'running', session_id);
+        // PTY 以默认 24x100 开启，会话就绪后立即纠正为 xterm 实际行列。
+        syncPtySize();
       })
       .catch((err) => {
         write(`\r\n[shell error] ${String(err)}\r\n`);

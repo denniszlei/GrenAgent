@@ -21,6 +21,9 @@ export const terminal = {
   shellWrite: (sessionId: string, data: string) =>
     invoke<void>('shell_write', { sessionId, data }),
 
+  shellResize: (sessionId: string, rows: number, cols: number) =>
+    invoke<void>('shell_resize', { sessionId, rows, cols }),
+
   shellStop: (sessionId: string) => invoke<void>('shell_stop', { sessionId }),
 
   onShellOutput: (handler: (event: TerminalOutputEvent) => void): Promise<UnlistenFn> =>

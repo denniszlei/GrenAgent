@@ -221,6 +221,36 @@ export const COLOR_SCHEMES: ColorScheme[] = [
       colorPrimary: '#5e6ad2',
     },
   },
+  {
+    // Solarized（Ethan Schoonover 经典配色）：最主流的浅色主打方案——独特的米黄护眼底，
+    // 官方 light + dark 两套都正宗。preview 用浅色，在选择器里一眼区别于上面的深色主打方案。
+    // 取值为官方十六色板（base2 #eee8d5 / base3 #fdf6e3 单色 + blue #268bd2 强调）。
+    id: 'solarized',
+    label: 'Solarized',
+    preview: ['#eee8d5', '#fdf6e3', '#268bd2'],
+    light: {
+      colorBgLayout: '#eee8d5',
+      colorBgContainer: '#fdf6e3',
+      colorBgElevated: '#fffdf3',
+      colorBorder: '#d9d2bb',
+      colorBorderSecondary: '#e7e0c9',
+      colorText: '#586e75',
+      colorTextSecondary: '#657b83',
+      colorTextTertiary: '#93a1a1',
+      colorPrimary: '#268bd2',
+    },
+    dark: {
+      colorBgLayout: '#002b36',
+      colorBgContainer: '#073642',
+      colorBgElevated: '#0a4250',
+      colorBorder: '#2a4a55',
+      colorBorderSecondary: '#0d3e4a',
+      colorText: '#93a1a1',
+      colorTextSecondary: '#839496',
+      colorTextTertiary: '#657b83',
+      colorPrimary: '#268bd2',
+    },
+  },
 ];
 
 const SCHEME_MAP = new Map(COLOR_SCHEMES.map((s) => [s.id, s]));

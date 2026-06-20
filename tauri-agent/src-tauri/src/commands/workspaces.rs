@@ -56,6 +56,90 @@ pub async fn get_works_dir() -> Result<String, String> {
     Ok(strip_verbatim(&canon))
 }
 
+/// 收集所有「已落盘会话」的 header.cwd（原始字符串，比较交给 paths_equivalent）。
+fn session_cwds() -> Vec<String> {
+    let mut out = Vec::new();
+    let sessions_root = match sessions_dir() {
+        Some(s) => s,
+        None => return out,
+    };
+    let canonical = match std::fs::canonicalize(&sessions_root) {
+        Ok(c) => c,
+        Err(_) => return out,
+    };
+    let mut files = Vec::new();
+    collect_session_files(&canonical, &mut files);
+    for path in files {
+        if let Ok(first) = read_first_line(&path) {
+            let path_str = path.to_string_lossy().to_string();
+            if let Some(cwd) = parse_session_header(&first, &path_str).and_then(|i| i.cwd) {
+                out.push(cwd);
+            }
+        }
+    }
+    out
+}
+
+/// 清理核心（可测）：删除 `works_root` 直接子目录中「既不在 used 也不在 keep」的目录，返回删除条数。
+/// 仅处理真实目录、跳过符号链接、双重校验仍在 works 根内；删除失败（如被占用）静默跳过。
+fn prune_orphans_in(works_root: &std::path::Path, used: &[String], keep: &[String]) -> usize {
+    let canonical_works = match std::fs::canonicalize(works_root) {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    let entries = match std::fs::read_dir(&canonical_works) {
+        Ok(e) => e,
+        Err(_) => return 0,
+    };
+    let mut count = 0usize;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let meta = match std::fs::symlink_metadata(&path) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if meta.file_type().is_symlink() || !meta.is_dir() {
+            continue;
+        }
+        let canon = match std::fs::canonicalize(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        if !canon.starts_with(&canonical_works) {
+            continue;
+        }
+        let dir_str = strip_verbatim(&canon);
+        // 保留：显式 keep（当前草稿）或仍有已落盘会话的真实对话。
+        if keep.iter().any(|k| paths_equivalent(k, &dir_str)) {
+            continue;
+        }
+        if used.iter().any(|c| paths_equivalent(c, &dir_str)) {
+            continue;
+        }
+        if std::fs::remove_dir_all(&canon).is_ok() {
+            count += 1;
+        }
+    }
+    count
+}
+
+/// 清理 works 下所有「无对应会话」的孤儿对话目录（保留 keep 列表），返回删除条数。
+///
+/// 用途：空白对话（draft）会预建 `works/<uuid>` 临时目录支撑模型选择/预热；用户未发消息就关闭
+/// 会留下无会话的空壳。启动时调用此命令清掉历史与崩溃残留，配合「统一复用未使用 draft」把空目录
+/// 数量收敛到最多 1 个。
+///
+/// 安全：works 是「对话」模式自动建的临时 cwd，从不含用户文件（仅 app 生成的 .pi / .codegraph），
+/// 故「无会话即可整目录删除」是安全的。绝不触碰用户自选的「项目」目录（它们不在 works 根下）。
+#[tauri::command]
+pub async fn prune_orphan_conversations(keep: Vec<String>) -> Result<usize, String> {
+    let works_root = match works_dir() {
+        Some(w) => w,
+        None => return Ok(0),
+    };
+    Ok(prune_orphans_in(&works_root, &session_cwds(), &keep))
+}
+
 /// 删除 sessions/ 下所有 header.cwd 等价于 `cwd` 的 .jsonl，返回删除条数。
 /// 仅在 sessions 根内操作，跳过符号链接/非 jsonl。
 pub(crate) fn delete_sessions_for_cwd(cwd: &str) -> Result<usize, String> {
@@ -182,5 +266,37 @@ mod tests {
         let with = "{\"type\":\"session\",\"id\":\"a\",\"cwd\":\"C:/ws/a\",\"timestamp\":\"t\"}\n";
         let info = parse_session_header(with, "/tmp/a.jsonl").unwrap();
         assert!(paths_equivalent(info.cwd.as_deref().unwrap(), "C:\\ws\\a"));
+    }
+
+    #[test]
+    fn prune_removes_orphans_keeps_used_and_kept() {
+        let base = std::env::temp_dir().join(format!("pi-prune-{}", uuid::Uuid::new_v4()));
+        let works = base.join("works");
+        let used = works.join("used");
+        let orphan = works.join("orphan");
+        let keep = works.join("keep");
+        std::fs::create_dir_all(&used).unwrap();
+        std::fs::create_dir_all(&orphan).unwrap();
+        std::fs::create_dir_all(&keep).unwrap();
+        // 模拟孤儿目录里的 app 产物（.pi），确认非空也会被整目录清理。
+        std::fs::create_dir_all(orphan.join(".pi")).unwrap();
+
+        let used_str = strip_verbatim(&std::fs::canonicalize(&used).unwrap());
+        let keep_str = strip_verbatim(&std::fs::canonicalize(&keep).unwrap());
+
+        let removed = prune_orphans_in(&works, &[used_str], &[keep_str]);
+
+        assert_eq!(removed, 1);
+        assert!(used.exists(), "有会话的目录应保留");
+        assert!(keep.exists(), "keep 列表中的目录应保留");
+        assert!(!orphan.exists(), "无会话的孤儿目录应被删除");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn prune_missing_works_root_is_noop() {
+        let missing = std::env::temp_dir().join(format!("pi-prune-missing-{}", uuid::Uuid::new_v4()));
+        assert_eq!(prune_orphans_in(&missing, &[], &[]), 0);
     }
 }

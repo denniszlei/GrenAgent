@@ -43,7 +43,7 @@ describe("code-intel engines", () => {
     expect(matchesEngineSignature("codegraph", ["read_file"])).toBe(false);
   });
 
-  it("engine without a tool prefix never matches a signature", () => {
-    expect(matchesEngineSignature("gitnexus", ["anything"])).toBe(false);
+  it("an unknown engine never matches a signature", () => {
+    expect(matchesEngineSignature("nope", ["anything"])).toBe(false);
   });
 });

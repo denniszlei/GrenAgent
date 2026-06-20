@@ -56,4 +56,15 @@ describe('useSettingsForm', () => {
     expect(closeWorkspace).not.toHaveBeenCalled();
     expect(result.current.dirty).toBe(false);
   });
+
+  it('setValue 后在同一同步链里立即 persist 携带最新值（修复开关写不进的竞态）', async () => {
+    const { result } = renderHook(() => useSettingsForm());
+    await waitFor(() => expect(result.current.values.OPENAI_API_KEY).toBe('sk-old'));
+    // 模拟接入开关 toggle 的用法：setValue 后不等 re-render，立刻 persist。
+    await act(async () => {
+      result.current.setValue('WECHAT_OC_ENABLE', '1');
+      await result.current.persist();
+    });
+    expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({ WECHAT_OC_ENABLE: '1' }));
+  });
 });

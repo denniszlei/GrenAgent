@@ -10,7 +10,7 @@ import {
   FolderOpen,
   Import,
   Plus,
-  RotateCw,
+  RefreshCw,
   ScrollText,
   Sparkles,
   Trash2,
@@ -116,30 +116,6 @@ const styles = createStaticStyles(({ css }) => ({
     color: ${cssVar.colorText};
     font-weight: 600;
     border-block-end-color: ${cssVar.colorPrimary};
-  `,
-  restartBtn: css`
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 12px;
-    border: 1px solid ${cssVar.colorWarningBorder};
-    border-radius: 999px;
-    background: ${cssVar.colorWarningBg};
-    color: ${cssVar.colorWarning};
-    font-size: 12px;
-    cursor: pointer;
-    transition:
-      background 0.16s ease,
-      opacity 0.16s ease;
-
-    &:hover {
-      background: ${cssVar.colorWarningBgHover};
-    }
-
-    &:disabled {
-      cursor: not-allowed;
-      opacity: 0.6;
-    }
   `,
   errorBar: css`
     flex: 0 0 auto;
@@ -303,7 +279,7 @@ const styles = createStaticStyles(({ css }) => ({
 }));
 
 export function ExtensionsPanel() {
-  const { values, setValue, persist, save, saving, loading, error } = useSettingsForm();
+  const { values, setValue, persist, loading, error } = useSettingsForm();
   const cols: Collections = {
     enabled: values.MCP_SERVERS ?? '',
     disabled: values.MCP_SERVERS_DISABLED ?? '',
@@ -314,8 +290,8 @@ export function ExtensionsPanel() {
   const { message } = App.useApp();
   const [tab, setTab] = useState<ExtTab>('mcp');
   const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [skillModalOpen, setSkillModalOpen] = useState(false);
-  const [needsRestart, setNeedsRestart] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<McpEntry | undefined>(undefined);
   const touchedRef = useRef(false);
@@ -407,8 +383,8 @@ export function ExtensionsPanel() {
     void reloadSkills();
   }, [reloadSkills]);
 
-  // 改动后静默自动存盘（防抖）：值已落盘，但 MCP/技能靠 env 在 sidecar 启动时注入，
-  // 仍需「重启生效」按钮重启才真正生效。
+  // 改动后静默自动存盘（防抖）→ 写 runtime-settings.json。MCP/代码智能引擎由 mcp 管理器
+  // fs.watch 增删改热更；技能/explore_context 由 PI_RELOAD_REV 触发 sidecar 内 session.reload()。均不重启。
   const persistRef = useRef(persist);
   persistRef.current = persist;
   useEffect(() => {
@@ -419,6 +395,7 @@ export function ExtensionsPanel() {
     values.MCP_SERVERS,
     values.MCP_SERVERS_DISABLED,
     values.SKILLS_DISABLED,
+    values.PI_RELOAD_REV,
     values.CODE_INTEL,
     values.CODE_INTEL_AUTO_INIT,
     values.CODE_INTEL_EXPLORER,
@@ -428,8 +405,10 @@ export function ExtensionsPanel() {
 
   const markChanged = () => {
     touchedRef.current = true;
-    setNeedsRestart(true);
   };
+  // 资源类变更（技能开关/增删/导入、explore_context 开关）后 bump 此版本号写入
+  // runtime-settings.json，触发 sidecar 内 session.reload() 重载技能/扩展与 system prompt，无需重启。
+  const bumpReloadRev = () => setValue('PI_RELOAD_REV', String(Date.now()));
 
   const writeCols = (next: Collections) => {
     setValue('MCP_SERVERS', next.enabled);
@@ -454,11 +433,13 @@ export function ExtensionsPanel() {
     if (next.has(name)) next.delete(name);
     else next.add(name);
     writeDisabled(next);
+    bumpReloadRev();
     markChanged();
   };
   const handleCreateSkill = async (name: string, description: string, body: string) => {
     await createSkill(name, description, body);
     await reloadSkills();
+    bumpReloadRev();
     markChanged();
   };
   const handleDeleteSkill = async (sk: SkillInfo) => {
@@ -469,6 +450,7 @@ export function ExtensionsPanel() {
       writeDisabled(next);
     }
     await reloadSkills();
+    bumpReloadRev();
     markChanged();
   };
 
@@ -478,6 +460,7 @@ export function ExtensionsPanel() {
     try {
       const sk = await fn(selected);
       await reloadSkills();
+      bumpReloadRev();
       markChanged();
       message.success(`已导入技能「${sk.name}」`);
     } catch (e) {
@@ -505,17 +488,26 @@ export function ExtensionsPanel() {
     }
   };
 
+  // 手动重扫技能目录：用户把技能目录拷进 ~/.agents/skills 后点此重新加载列表，
+  // 同时 bump reload rev 让 sidecar 热重载，新技能即时对 agent 生效（无需重启）。
+  const handleRefreshSkills = async () => {
+    setRefreshing(true);
+    try {
+      await reloadSkills();
+      bumpReloadRev();
+      markChanged();
+      message.success('已刷新技能列表');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const importMenu = {
     items: [
       { key: 'zip', label: '从 Zip 安装', icon: <FileArchive size={14} />, onClick: () => void importZip() },
       { key: 'dir', label: '导入技能目录', icon: <FolderInput size={14} />, onClick: () => void importDir() },
       { key: 'file', label: '导入单文件 (SKILL.md)', icon: <FileText size={14} />, onClick: () => void importFile() },
     ],
-  };
-
-  const restart = async () => {
-    await save();
-    setNeedsRestart(false);
   };
 
   return (
@@ -550,19 +542,6 @@ export function ExtensionsPanel() {
             代码智能
           </button>
         </div>
-        {needsRestart ? (
-          <button
-            type="button"
-            data-testid="ext-restart"
-            className={styles.restartBtn}
-            onClick={() => void restart()}
-            disabled={saving}
-            title="改动已自动保存，重启 sidecar 后生效"
-          >
-            <RotateCw size={13} />
-            {saving ? '重启中…' : '重启生效'}
-          </button>
-        ) : null}
       </div>
 
       {error && <div className={styles.errorBar}>{error}</div>}
@@ -574,6 +553,7 @@ export function ExtensionsPanel() {
               values={values}
               setValue={setValue}
               onChange={markChanged}
+              onReload={bumpReloadRev}
               knownToolNames={Object.values(toolsCache).flatMap((e) => e.toolNames)}
             />
           ) : tab === 'mcp' ? (
@@ -680,6 +660,15 @@ export function ExtensionsPanel() {
                 <Flexbox horizontal align="center" gap={8}>
                   <Button
                     size="small"
+                    data-testid="skill-refresh"
+                    icon={<RefreshCw size={14} />}
+                    loading={refreshing}
+                    onClick={() => void handleRefreshSkills()}
+                  >
+                    刷新
+                  </Button>
+                  <Button
+                    size="small"
                     data-testid="skill-open-dir"
                     icon={<FolderOpen size={14} />}
                     onClick={() => void handleOpenSkillsDir()}
@@ -703,7 +692,7 @@ export function ExtensionsPanel() {
                 </Flexbox>
               </div>
               <div className={styles.heroDesc}>
-                技能存于 <code className={styles.code}>~/.agents/skills</code>；关闭或增删后改动自动保存、重启生效；可用 <code className={styles.code}>/skill:名称</code> 调用。
+                技能存于 <code className={styles.code}>~/.agents/skills</code>；关闭或增删后自动保存、即时生效（无需重启）；手动往该目录放技能后点「刷新」重新加载；可用 <code className={styles.code}>/skill:名称</code> 调用。
               </div>
 
               {skills.length === 0 ? (

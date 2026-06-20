@@ -14,7 +14,7 @@ function shouldRefetch(event: AgentEvent): boolean {
   return false;
 }
 
-export function useSessionStats(workspace: string) {
+export function useSessionStats(workspace: string, refetchKey?: number) {
   const [stats, setStats] = useState<ContextStats | null>(null);
   const [error, setError] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
@@ -33,9 +33,11 @@ export function useSessionStats(workspace: string) {
     }
   }, [workspace]);
 
+  // 触发重拉：workspace 变 / refetch 重建，以及 refetchKey 变化——后者用于「打开旧会话时历史异步加载完成」
+  // 的场景：切 workspace 那一刻 sidecar 会话往往尚未就绪、首拉为 0，历史加载进 store 后须再拉一次才有数据。
   useEffect(() => {
     void refetch();
-  }, [refetch]);
+  }, [refetch, refetchKey]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;

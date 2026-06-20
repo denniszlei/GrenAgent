@@ -99,6 +99,7 @@ describe("gateToolCall", () => {
       "ls",
       "fetch_url",
       "web_search",
+      "web_search_multi",
       "search",
       "fetch_web_content",
       "code_search",

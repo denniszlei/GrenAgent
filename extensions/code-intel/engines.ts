@@ -10,12 +10,6 @@ export interface CodeIntelEngine {
   buildConfig: (pkgDir: string, platform: string) => McpServerConfig;
 }
 
-function binPath(pkgDir: string, base: string, platform: string): string {
-  const ext = platform === "win32" ? ".exe" : "";
-  // pkgDir 由 PI_PACKAGE_DIR 提供（sidecar.rs 指向 binaries/）。
-  return `${pkgDir.replace(/[\\/]+$/, "")}/${base}${ext}`;
-}
-
 // CodeGraph 是「目录型 bundle」（bundled Node + lib/dist + bin launcher），不是单文件二进制。
 // build-codegraph.mjs 把整目录放在 PI_PACKAGE_DIR/codegraph/。注入据此构造启动命令：
 //   unix : <dir>/bin/codegraph serve --mcp --path <ws>
@@ -57,18 +51,6 @@ const ENGINES: Record<string, CodeIntelEngine> = {
         env: {},
       };
     },
-  },
-  // GitNexus 为 Phase 4 opt-in 引擎，先登记元数据占位（buildConfig 待该阶段实现真实命令）。
-  gitnexus: {
-    serverName: "gitnexus",
-    toolPrefix: "",
-    buildConfig: (pkgDir, platform) => ({
-      name: "gitnexus",
-      transport: "stdio",
-      command: binPath(pkgDir, "gitnexus", platform),
-      args: ["mcp"],
-      env: {},
-    }),
   },
 };
 

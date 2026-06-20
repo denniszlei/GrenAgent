@@ -2,10 +2,12 @@ import { useMemo, useState } from 'react';
 import { Icon, Popover } from '@lobehub/ui';
 import { App } from 'antd';
 import { cssVar, cx } from 'antd-style';
-import { Check, GitBranch, GitBranchPlus, Search } from 'lucide-react';
+import { Check, FileDiff, GitBranch, GitBranchPlus, Network, Search } from 'lucide-react';
 import { pi } from '../../../../lib/pi';
 import { useAgentStoreContext } from '../../../../stores/AgentStoreContext';
 import { useGitInfo, useGitStore } from '../../../../stores/gitStore';
+import { ChangesModal } from './DiffPanel';
+import { GitGraphModal } from './GitGraphPanel';
 import { wsStyles as s } from './styles';
 
 /**
@@ -21,6 +23,8 @@ export function BranchPicker() {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
 
   const changes = git.changes.length;
   const filtered = useMemo(() => {
@@ -110,6 +114,30 @@ export function BranchPicker() {
         )}
       </div>
       <div className={s.foot}>
+        {changes > 0 ? (
+          <div
+            className={s.footRow}
+            data-testid="branch-view-changes"
+            onClick={() => {
+              setOpen(false);
+              setDiffOpen(true);
+            }}
+          >
+            <Icon icon={FileDiff} size={13} />
+            <span className={s.rowName}>查看改动（{changes}）</span>
+          </div>
+        ) : null}
+        <div
+          className={s.footRow}
+          data-testid="branch-view-graph"
+          onClick={() => {
+            setOpen(false);
+            setGraphOpen(true);
+          }}
+        >
+          <Icon icon={Network} size={13} />
+          <span className={s.rowName}>Git 图谱</span>
+        </div>
         {creating ? (
           <div className={s.search} style={{ border: 'none', padding: '4px 6px' }}>
             <Icon icon={GitBranchPlus} size={13} />
@@ -135,19 +163,23 @@ export function BranchPicker() {
   );
 
   return (
-    <Popover
-      arrow={false}
-      content={content}
-      open={open}
-      placement="topLeft"
-      trigger="click"
-      onOpenChange={onOpenChange}
-    >
-      <span className={s.chip}>
-        <Icon icon={GitBranch} size={14} />
-        <span className={s.chipName}>{git.current || '—'}</span>
-        {changes > 0 ? <span className={s.badge}>{changes}</span> : null}
-      </span>
-    </Popover>
+    <>
+      <Popover
+        arrow={false}
+        content={content}
+        open={open}
+        placement="topLeft"
+        trigger="click"
+        onOpenChange={onOpenChange}
+      >
+        <span className={s.chip}>
+          <Icon icon={GitBranch} size={14} />
+          <span className={s.chipName}>{git.current || '—'}</span>
+          {changes > 0 ? <span className={s.badge}>{changes}</span> : null}
+        </span>
+      </Popover>
+      <ChangesModal workspace={workspace} open={diffOpen} onClose={() => setDiffOpen(false)} />
+      <GitGraphModal workspace={workspace} open={graphOpen} onClose={() => setGraphOpen(false)} />
+    </>
   );
 }

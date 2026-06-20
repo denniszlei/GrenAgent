@@ -17,6 +17,14 @@ const WRITE_BYPASS_TOOLS = new Set<string>(WRITE_TOOLS);
 const HOST_FALLBACK_EXEC = new Set<string>(HOST_FALLBACK_EXEC_TOOLS);
 const HOST_ONLY_EXEC = new Set<string>(HOST_ONLY_EXEC_TOOLS);
 
+// 沙箱激活（且非「完全访问」）时预先注入的工具约束提示：让 agent 一上来就用对的工具，不必撞
+// 「bash 已禁用」/「sandbox 越界 not accessible」后才回退到 read/ls。display:false 不进可见对话。
+const SANDBOX_HINT =
+  "【沙箱模式】本会话内置 bash 已禁用。优先用内置工具：读文件用 read、列目录用 ls、查找用 find / grep" +
+  "——它们在宿主直接可用、可访问任意路径、不受沙箱限制。仅当确需执行 shell 命令时才用 sandbox_sh" +
+  "（隔离环境：只能访问当前 workspace 目录、网络默认禁；不要让它访问 workspace 之外的路径，否则会 not accessible）。" +
+  "不要调用内置 bash。（这是系统约束提示，无需在回复里复述或记忆。）";
+
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
     const on = (v: string | undefined) => v === "1" || v?.toLowerCase() === "true";
@@ -117,6 +125,14 @@ export default function (pi: ExtensionAPI) {
       }
     }
     return undefined;
+  });
+
+  // 沙箱激活且非「完全访问」时，每轮开始前注入一条工具约束提示，让 agent 直接用对工具（read/ls/find/grep
+  // 在宿主可用；shell 走 sandbox_sh、限 workspace），不再撞「bash 禁用 / sandbox 越界」才回退。
+  pi.on("before_agent_start", async () => {
+    if (getApprovalPolicy() === "full") return undefined;
+    if (!(await sandboxOn())) return undefined;
+    return { message: { customType: "sandbox-hint", content: SANDBOX_HINT, display: false } };
   });
 
   // project_trust 必须返回 { trusted: "yes"|"no"|"undecided" }（官方 ProjectTrustEventResult），不是 block。

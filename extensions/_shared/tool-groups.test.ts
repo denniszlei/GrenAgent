@@ -12,13 +12,15 @@ describe("tool-groups", () => {
   it("NET_TOOLS lists real registered networking tools (no phantom names)", () => {
     // 真实注册的联网工具（web-search / web-fetch / github）。
     expect(NET_TOOLS).toContain("web_search");
-    expect(NET_TOOLS).toContain("search");
+    expect(NET_TOOLS).toContain("web_search_multi");
     expect(NET_TOOLS).toContain("fetch_url");
     expect(NET_TOOLS).toContain("fetch_llms");
     expect(NET_TOOLS).toContain("github");
     // 历史失配的幻影名不得再出现。
     expect(NET_TOOLS as readonly string[]).not.toContain("web_fetch");
     expect(NET_TOOLS as readonly string[]).not.toContain("web_crawler");
+    // search 现归 batch-tools 的本地代码检索（只读、非联网），不得被当作联网工具门控。
+    expect(NET_TOOLS as readonly string[]).not.toContain("search");
   });
 
   it("WRITE_TOOLS are the write-allowlist bypass writers", () => {

@@ -190,7 +190,9 @@ export function MessageEditor({ leftActions, rightActions }: MessageEditorProps)
         </Flexbox>
       </div>
       {dragOver ? (
-        <div className={styles.dropHint}>{dragKind === 'text' ? '拖放以插入文本' : '拖放文件以引用'}</div>
+        <div className={styles.dropHint}>
+          {dragKind === 'text' ? '拖放以插入文本' : dragKind === 'image' ? '拖放以插入图片' : '拖放文件以引用'}
+        </div>
       ) : null}
     </div>
   );

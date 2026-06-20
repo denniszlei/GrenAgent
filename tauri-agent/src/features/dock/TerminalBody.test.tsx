@@ -7,6 +7,7 @@ vi.mock('xterm', () => ({
   Terminal: class {
     options: Record<string, unknown> = {};
     rows = 0;
+    cols = 0;
     loadAddon() {}
     open() {}
     onData() {
@@ -35,6 +36,7 @@ vi.mock('../../lib/terminal', () => ({
     shellStart: (...a: unknown[]) => shellStart(...a),
     shellStop: (...a: unknown[]) => shellStop(...a),
     shellWrite: vi.fn(async () => {}),
+    shellResize: vi.fn(async () => {}),
     onShellOutput: (handler: (event: unknown) => void) => onShellOutput(handler),
   },
 }));

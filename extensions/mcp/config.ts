@@ -77,7 +77,9 @@ export function injectDefaultServers(
   let out = servers;
 
   // 1) code-intel 引擎（默认 codegraph；off 关闭）。需 PI_PACKAGE_DIR 解析捆绑二进制。
-  const engineName = env.CODE_INTEL ?? "codegraph";
+  // 旧值/未知引擎（如已移除的 gitnexus）回落 codegraph，避免迁移用户代码智能静默失效。
+  const requested = env.CODE_INTEL ?? "codegraph";
+  const engineName = requested === "off" ? "off" : getEngine(requested) ? requested : "codegraph";
   const engine = engineName === "off" ? undefined : getEngine(engineName);
   if (engine) {
     const sameName = out.some((s) => s.name === engine.serverName);

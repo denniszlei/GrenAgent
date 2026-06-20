@@ -5,6 +5,7 @@ import {
   getDetails,
   getDiff,
   langByPath,
+  skillNameFromRead,
   toolMeta,
 } from './toolUtils';
 import { Terminal, Wrench } from 'lucide-react';
@@ -47,6 +48,28 @@ describe('toolMeta extension icons', () => {
     for (const name of ['kb_search', 'kb_add', 'memory_save', 'memory_recall', 'generate_image', 'spawn_agent', 'fetch_url', 'speak']) {
       expect(toolMeta(name).icon).toBeTruthy();
     }
+  });
+});
+
+describe('skillNameFromRead', () => {
+  it('取 SKILL.md 所在目录名作为技能名（posix / windows 路径都支持）', () => {
+    expect(skillNameFromRead('read', { path: '/home/u/.agents/skills/brave-search/SKILL.md' })).toBe(
+      'brave-search',
+    );
+    expect(
+      skillNameFromRead('read_file', { path: 'C:\\Users\\u\\.agents\\skills\\pdf-tools\\SKILL.md' }),
+    ).toBe('pdf-tools');
+  });
+
+  it('文件名大小写不敏感', () => {
+    expect(skillNameFromRead('read', { path: '/x/skills/foo/skill.md' })).toBe('foo');
+  });
+
+  it('非技能读取 / 非 read 工具 / 缺路径都返回 undefined', () => {
+    expect(skillNameFromRead('read', { path: '/x/src/index.ts' })).toBeUndefined();
+    expect(skillNameFromRead('read', { path: '/x/README.md' })).toBeUndefined();
+    expect(skillNameFromRead('bash', { command: 'cat SKILL.md' })).toBeUndefined();
+    expect(skillNameFromRead('read', {})).toBeUndefined();
   });
 });
 

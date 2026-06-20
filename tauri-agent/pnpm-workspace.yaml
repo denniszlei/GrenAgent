@@ -1,0 +1,10 @@
+packages:
+  - '.'
+
+allowBuilds:
+  '@lobehub/editor': true
+  esbuild: true
+
+onlyBuiltDependencies:
+  - '@lobehub/editor'
+  - esbuild

@@ -51,12 +51,14 @@ export function useSettingsForm(): SettingsForm {
   }, []);
 
   // 手动保存模式：setValue 只更新本地状态并标记 dirty，不落盘。
+  // 同步更新 valuesRef.current（不依赖 setValues 的 updater 在下次 render 才执行）：
+  // 否则「setValue 后在同一事件同步链里立即 await persist()」会读到上一次 render 的旧值
+  // ——React 批处理使 updater 滞后，刚改的值还没进 ref，于是没被写盘
+  // （微信接入开关 toggleWechat 正是这种用法，曾导致开关写不进、要再保存一次才生效）。
   const setValue = useCallback((key: string, value: string) => {
-    setValues((prev) => {
-      const next = { ...prev, [key]: value };
-      valuesRef.current = next;
-      return next;
-    });
+    const next = { ...valuesRef.current, [key]: value };
+    valuesRef.current = next;
+    setValues(next);
     setDirty(true);
   }, []);
 

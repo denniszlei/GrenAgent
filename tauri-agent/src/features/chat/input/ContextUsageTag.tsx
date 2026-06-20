@@ -150,8 +150,11 @@ function UsageCard({ stats }: { stats: ContextStats }) {
 
 /** ChatInput 上的上下文用量指示:TokenTag 圆环 + 点击弹出明细气泡卡片。 */
 export function ContextUsageTag() {
-  const { workspace } = useAgentStoreContext();
-  const { stats } = useSessionStats(workspace);
+  const { workspace, store } = useAgentStoreContext();
+  // 打开 / 切换会话时历史异步加载进 store；消息数变化即触发 stats 重拉，
+  // 解决「打开旧会话首拉为 0（sidecar 会话尚未就绪）后再不更新」。
+  const messageCount = store.useStore((s) => s.messages.length);
+  const { stats } = useSessionStats(workspace, messageCount);
 
   if (!stats) return null;
 

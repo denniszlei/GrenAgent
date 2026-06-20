@@ -1,4 +1,5 @@
 pub mod client;
+pub mod diag;
 pub mod framing;
 pub mod guard;
 pub mod manager;

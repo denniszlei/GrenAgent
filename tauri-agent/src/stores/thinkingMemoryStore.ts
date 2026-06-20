@@ -4,7 +4,7 @@ import { persist } from 'zustand/middleware';
 interface ThinkingMemoryState {
   /** modelKey(provider,id) → 上次选择的推理档位（持久化，按模型记忆）。 */
   byModel: Record<string, string>;
-  /** workspace → 模型切换信号（递增）；通知 ThinkingAction 重新读取后端档位刷新显示。 */
+  /** workspace → 模型切换信号（递增）；通知 ModelThinkingAction 重新读取后端档位刷新显示。 */
   switchSeq: Record<string, number>;
   remember: (modelKey: string, level: string) => void;
   bumpSwitch: (workspace: string) => void;

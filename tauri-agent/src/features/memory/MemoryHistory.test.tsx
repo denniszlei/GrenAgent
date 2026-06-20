@@ -33,6 +33,6 @@ describe('MemoryHistory', () => {
     render(<MemoryHistory />);
     await waitFor(() => expect(screen.getByTestId('mem-hist-rollback-2')).toBeTruthy());
     fireEvent.click(screen.getByTestId('mem-hist-rollback-2'));
-    await waitFor(() => expect(runCommand).toHaveBeenCalledWith('/ws', '/memory rollback 2'));
+    await waitFor(() => expect(runCommand).toHaveBeenCalledWith('/ws', '/memory rollback 2 project'));
   });
 });
