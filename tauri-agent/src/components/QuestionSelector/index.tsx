@@ -3,6 +3,7 @@ import { Check, MessageCircleQuestion } from 'lucide-react';
 import { createStaticStyles, cssVar, cx } from 'antd-style';
 import { memo, useState } from 'react';
 import type { ImageAttachment } from '../../features/chat/input/ChatInputContext';
+import { LazyMarkdown } from '../../features/chat/LazyMarkdown';
 import { CUSTOM_OPTION_ID } from './constants';
 import { ExtraContent } from './ExtraContent';
 
@@ -291,7 +292,15 @@ export const QuestionSelector = memo(function QuestionSelector({
 
       {q ? (
         <div className={styles.body}>
-          <div className={styles.question}>{q.title}</div>
+          <div className={styles.question}>
+            {/`/.test(q.title) ? (
+              <LazyMarkdown enableMermaid={false} fontSize={14} variant="chat">
+                {q.title}
+              </LazyMarkdown>
+            ) : (
+              q.title
+            )}
+          </div>
           <div className={styles.options}>
             {q.options.map((o, oi) => {
               const isSel = picked.includes(o.id);
