@@ -46,17 +46,12 @@
     </td>
   </tr>
   <tr>
-    <td colspan="2" align="center" valign="top">
-      <table width="50%">
-        <tr>
-          <td valign="top">
-            <img src="images/skills.png" alt="Skills 工作流" width="100%"><br>
-            <strong>Skills 工作流</strong><br>
-            从 <code>~/.agents/skills</code> 加载技能，<code>/skill:name</code> 调用，面板内启用/禁用。
-          </td>
-        </tr>
-      </table>
+    <td width="50%" valign="top">
+      <img src="images/skills.png" alt="Skills 工作流" width="100%"><br>
+      <strong>Skills 工作流</strong><br>
+      从 <code>~/.agents/skills</code> 加载技能，<code>/skill:name</code> 调用，面板内启用/禁用。
     </td>
+    <td width="50%" valign="top"></td>
   </tr>
 </table>
 
