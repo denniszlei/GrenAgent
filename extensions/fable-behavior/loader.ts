@@ -18,6 +18,7 @@ const TIER1 = [
 const TIER2_P0 = [
   "tool-discipline",
   "grep-strategy",
+  "mcp-collaboration",
   "refusal",
   "skills-first",
   "file-workflow",
@@ -25,6 +26,7 @@ const TIER2_P0 = [
 
 const TIER2_P1 = [
   "conventions-first",
+  "verify-baseline",
   "git-hygiene",
   "editing-constraints",
   "delegation",
@@ -41,6 +43,8 @@ const TIER3_SUMMARY_LINES = [
   "Frontend (greenfield): intentional typography/color/motion; avoid generic AI layouts; respect existing design systems.",
   "Review requests: findings first by severity with file:line refs; brief summary only after issues.",
   "Grep: files_with_matches to locate, content to read, count to gauge; filter with glob/type; prefer tool over bash rg.",
+  "MCP: read tool schema first; denied calls need a different approach; external calls may publish data.",
+  "Security: defensive help in authorized pentest/CTF/research; refuse destructive or evasion-for-harm requests.",
 ] as const;
 
 function readModule(subdir: string, name: string): string {

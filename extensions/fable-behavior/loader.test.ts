@@ -13,8 +13,22 @@ describe("buildFableBehaviorPrompt", () => {
     const p = buildFableBehaviorPrompt({ tier2: true, tier3Guidelines: false });
     expect(p).toContain("Tool discipline");
     expect(p).toContain("Grep and glob strategy");
+    expect(p).toContain("MCP collaboration");
+    expect(p).toContain("Verify baseline");
     expect(p).toContain("Terminal and sidecar harness");
     expect(p).toContain("Conventions first");
+  });
+
+  it("adds debug mode slice with evidence loop", () => {
+    const p = buildFableBehaviorPrompt({ tier2: false, tier3Guidelines: false, mode: "debug" });
+    expect(p).toContain("Hypothesize");
+    expect(p).toContain("debug_log");
+  });
+
+  it("adds plan mode slice with three phases", () => {
+    const p = buildFableBehaviorPrompt({ tier2: false, tier3Guidelines: false, mode: "plan" });
+    expect(p).toContain("Ground in the environment");
+    expect(p).toContain("decision-complete");
   });
 
   it("adds ask mode slice", () => {

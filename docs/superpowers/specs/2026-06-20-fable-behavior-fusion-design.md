@@ -49,10 +49,12 @@ buildSystemPrompt()           # unchanged
 |------|--------|
 | `tool-discipline.md` | Cursor + Claude grep-tool + Copilot priority |
 | `grep-strategy.md` | Claude Code grep-tool (output modes, regex, filter) |
-| `refusal.md` | Fable refusal_handling (malware etc.) |
+| `mcp-collaboration.md` | Claude Code Opus 4.8 MCP harness rules |
+| `refusal.md` | Fable + Opus authorized security boundaries |
 | `skills-first.md` | Fable computer_use/skills + Pi skills |
 | `file-workflow.md` | Fable file_creation + Cursor read-before-edit |
 | `conventions-first.md` | OpenCode core mandates |
+| `verify-baseline.md` | Copilot lint/build/test baseline workflow |
 | `git-hygiene.md` | Codex dirty worktree + Cursor git |
 | `editing-constraints.md` | Codex auto-review editing constraints |
 | `delegation.md` | Claude Code Agent + Copilot explore/manager mode |
@@ -68,8 +70,8 @@ buildSystemPrompt()           # unchanged
 | Mode | Extra |
 |------|-------|
 | ask | search tier-3 summary |
-| plan | explore-first reminder (also in enhanced PLAN_PROMPT) |
-| debug | verification loop reminder |
+| plan | Codex plan_mode three phases + non-mutating boundary (also in enhanced PLAN_PROMPT) |
+| debug | Codex/Cursor evidence loop + debug_log alignment |
 | agent | none |
 
 ## Boundaries
