@@ -1,6 +1,6 @@
 # GrenAgent README 预览图排版设计
 
-> 状态：设计已与用户确认（方案 B · 特性图文交替；仅展示有截图的 7 条；Hero = 代码图谱全景）。待用户审查书面规格后进入 writing-plans。
+> 状态：已实现。计划：`docs/superpowers/plans/2026-06-20-readme-preview.md`
 
 ## 1. 背景与目标
 
