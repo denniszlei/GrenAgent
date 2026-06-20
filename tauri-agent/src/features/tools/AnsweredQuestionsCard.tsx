@@ -62,7 +62,7 @@ const styles = createStaticStyles(({ css }) => ({
     gap: 8px;
     align-items: flex-start;
     padding: 7px 10px;
-    border: 1px solid ${cssVar.colorPrimaryBorder};
+    border: 1px solid ${cssVar.colorPrimary};
     border-radius: 8px;
     background: ${cssVar.colorPrimaryBg};
     font-size: 13px;
@@ -144,18 +144,24 @@ export const AnsweredQuestionsCard = memo(function AnsweredQuestionsCard({
   const multi = items.length > 1;
   const [first, ...rest] = items;
 
-  const renderItem = (item: typeof items[0], nth: number) => (
-    <div className={styles.item} key={nth}>
-      {multi && <span className={styles.qlabel}>第 {nth + 1} 题</span>}
-      {item.q && <div className={styles.qtext}>{item.q}</div>}
-      {item.a && (
-        <div className={styles.apill}>
-          {item.letter && <span className={styles.badge}>{item.letter}</span>}
-          <span>{item.a}</span>
-        </div>
-      )}
-    </div>
-  );
+  const renderItem = (item: typeof items[0], nth: number) => {
+    // Strip leading "X. " from answer text when badge already shows the letter
+    const displayA = item.letter && item.a.startsWith(`${item.letter}. `)
+      ? item.a.slice(item.letter.length + 2)
+      : item.a;
+    return (
+      <div className={styles.item} key={nth}>
+        {multi && <span className={styles.qlabel}>第 {nth + 1} 题</span>}
+        {item.q && <div className={styles.qtext}>{item.q}</div>}
+        {item.a && (
+          <div className={styles.apill}>
+            {item.letter && <span className={styles.badge}>{item.letter}</span>}
+            <span>{displayA}</span>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className={styles.card}>
