@@ -46,6 +46,9 @@ export interface RawAskUserParams {
   extraPlaceholder?: string;
 }
 
+/** ask_user 单次最多渲染的问题数（载荷与 UI 体量上限）。 */
+export const MAX_QUESTIONS = 8;
+
 // 生成提问卡 id：q-<base36 时间戳>-<rand>。
 export function makeQuestionsId(now: Date = new Date(), rand: string = Math.random().toString(36).slice(2, 6)): string {
   return `q-${now.getTime().toString(36)}-${rand}`;
@@ -77,6 +80,7 @@ export function normalizeQuestions(raw: RawQuestion[], id: string, card?: Omit<R
       allowCustom,
     });
   });
+  if (questions.length > MAX_QUESTIONS) questions.length = MAX_QUESTIONS;
   if (questions.length === 0) return null;
   return {
     kind: "questions",

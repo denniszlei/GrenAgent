@@ -102,6 +102,16 @@ describe("normalizeQuestions", () => {
     expect(normalizeQuestions([{ question: "" }], "q-1")).toBeNull();
     expect(normalizeQuestions([], "q-1")).toBeNull();
   });
+
+  it("caps questions at 8", () => {
+    const raw: RawQuestion[] = Array.from({ length: 11 }, (_, i) => ({
+      question: `Q${i + 1}`,
+      options: [{ label: "x" }],
+    }));
+    const out = normalizeQuestions(raw, "q-1");
+    expect(out?.questions).toHaveLength(8);
+    expect(out?.questions[7].title).toBe("Q8");
+  });
 });
 
 describe("collectAnswers", () => {
