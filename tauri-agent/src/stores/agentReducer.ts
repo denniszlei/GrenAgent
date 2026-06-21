@@ -349,11 +349,12 @@ export function applyEvent(state: AgentState, event: AgentEvent): AgentState {
 
     default: {
       // 兜底：捕获未显式建模、但带 string error 字段的错误事件，避免失败被静默吞掉。
+      // 注意：不在此处设 isStreaming:false——流尚未结束（agent_end 还没到），提前停流会让
+      // awaitStreamingEnd 提前 resolve，导致 runOnce 误判失败并闪现错误 banner。
       const maybeError = (event as { error?: unknown }).error;
       if (typeof maybeError === 'string' && maybeError.trim()) {
-        // 用户主动中断期间丢弃 abort 报错，仅停流不弹红条。
         if (state.aborting) return { ...state, isStreaming: false };
-        return { ...state, lastError: maybeError, isStreaming: false };
+        return { ...state, lastError: maybeError };
       }
       return state;
     }
