@@ -22,8 +22,9 @@ import {
   runRpcMode,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import { allExtensions, safety } from "../../extensions/index.js";
+import { allExtensions, namedExtensions, safety } from "../../extensions/index.js";
 import { getConfig, watchConfig } from "../../extensions/_shared/runtime-config.js";
+import { filterExtensionsByProfile, type ExtensionProfile } from "./extension-profile.js";
 
 // Distinctive startup marker on stderr. The Tauri backend (pi/sidecar.rs) probes
 // for it after spawn: if absent, the spawned `pi` is likely a plain upstream
@@ -85,7 +86,12 @@ const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, agentDir, 
     authStorage,
     modelRegistry,
     resourceLoaderOptions: {
-      extensionFactories: allExtensions,
+      // 按 EXTENSIONS_PROFILE 过滤：真对话模式（chat）裁掉重代码智能扩展以加速冷启动；默认 project 全载。
+      // safety 永不剔除（见 filterExtensionsByProfile）。
+      extensionFactories: filterExtensionsByProfile(
+        namedExtensions,
+        (getConfig("EXTENSIONS_PROFILE") as ExtensionProfile) ?? "project",
+      ).map((x) => x.factory),
       // Provided unconditionally so every resourceLoader.reload() re-reads the live
       // disabled list — GUI skill toggles take effect on reload, no sidecar restart.
       skillsOverride: (base) => {
