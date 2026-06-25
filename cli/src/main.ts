@@ -125,6 +125,14 @@ async function run(): Promise<void> {
     return;
   }
 
+  // 一次性 LLM 调用（mermaid 修复 / 模型健康检查用）：走 pi-ai dispatch，不进对话。逻辑在 extensions/_shared
+  // （pi-ai 在那解析），与 probe-mcp 同构。读 ONESHOT_REQUEST（JSON），结果打 stdout（流式为 JSONL）。
+  if (argv[0] === "oneshot") {
+    const { runOneshot } = await import("../../extensions/_shared/oneshot.js");
+    await runOneshot();
+    return;
+  }
+
   // RPC mode (Tauri) → our own runtime so skillsOverride can filter skills.
   if (isRpcMode(argv)) {
     // Orphan guard: stdin is our RPC command channel and the parent (Tauri) keeps
