@@ -118,6 +118,13 @@ async function run(): Promise<void> {
     return;
   }
 
+  // 一次性列模型（管理面板 / 冷启动 / 真对话模式用）：不启动 pi 运行时，仅建 ModelRegistry 列模型。
+  if (argv[0] === "probe-models") {
+    const { runModelProbe } = await import("./probe-models.js");
+    await runModelProbe();
+    return;
+  }
+
   // RPC mode (Tauri) → our own runtime so skillsOverride can filter skills.
   if (isRpcMode(argv)) {
     // Orphan guard: stdin is our RPC command channel and the parent (Tauri) keeps
