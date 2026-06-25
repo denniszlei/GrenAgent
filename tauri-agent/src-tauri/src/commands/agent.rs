@@ -66,6 +66,9 @@ fn apply_conversation_tool_policy(
     if is_conversation_workspace(cwd) {
         env.remove("MCP_SERVERS");
         env.insert("MCP_DISABLED".into(), "1".into());
+        // 真对话模式（SP-3）：项目无关对话加载精简扩展集——裁掉 lsp/dap/code-intel/diagnostics 等重代码
+        // 智能扩展，缩短冷启动、降低开销；安全闸（safety）仍保留。项目工作区不设此项，保持全量扩展。
+        env.insert("EXTENSIONS_PROFILE".into(), "chat".into());
     }
     env
 }
