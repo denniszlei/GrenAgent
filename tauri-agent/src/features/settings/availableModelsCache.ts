@@ -9,8 +9,38 @@ import { parseModels, type ModelInfo } from '../chat/input/modelUtils';
 const cache = new Map<string, ModelInfo[]>();
 const inflight = new Map<string, Promise<ModelInfo[]>>();
 
+// 项目无关的全局模型枚举（SP-1 probe-models）用的缓存键：与任何真实 workspace 路径不冲突。
+export const GLOBAL_MODELS_KEY = '__global__';
+
 export function getCachedAvailableModels(workspace: string): ModelInfo[] | undefined {
   return cache.get(workspace);
+}
+
+/**
+ * 加载项目无关的全局模型列表（不需要打开项目）：走 list_models_global → probe-models 子命令。
+ * 供冷启动 / 全局设置 / 真对话模式（SP-3）在没有 workspace 时枚举模型。复用同一缓存（GLOBAL_MODELS_KEY）。
+ */
+export async function loadGlobalModels(force = false): Promise<ModelInfo[]> {
+  if (!force) {
+    const cached = cache.get(GLOBAL_MODELS_KEY);
+    if (cached) return cached;
+    const pending = inflight.get(GLOBAL_MODELS_KEY);
+    if (pending) return pending;
+  }
+  const p = pi
+    .listModelsGlobal()
+    .then((raw) => {
+      const models = parseModels(raw);
+      if (models.length > 0) cache.set(GLOBAL_MODELS_KEY, models);
+      inflight.delete(GLOBAL_MODELS_KEY);
+      return models;
+    })
+    .catch((e) => {
+      inflight.delete(GLOBAL_MODELS_KEY);
+      throw e;
+    });
+  inflight.set(GLOBAL_MODELS_KEY, p);
+  return p;
 }
 
 export async function loadAvailableModels(workspace: string, force = false): Promise<ModelInfo[]> {
@@ -54,17 +84,36 @@ export interface AvailableModelsState {
  * 拿到结果或轮询耗尽后转 false。切换 workspace 会把 models 重置为新 workspace 的缓存（或 null），不串台。
  */
 export function useAvailableModelsState(workspace: string | undefined): AvailableModelsState {
-  const [models, setModels] = useState<ModelInfo[] | null>(() =>
-    workspace ? (getCachedAvailableModels(workspace) ?? null) : null,
+  const [models, setModels] = useState<ModelInfo[] | null>(
+    () => getCachedAvailableModels(workspace ?? GLOBAL_MODELS_KEY) ?? null,
   );
-  const [loading, setLoading] = useState<boolean>(() =>
-    workspace ? getCachedAvailableModels(workspace) === undefined : false,
+  const [loading, setLoading] = useState<boolean>(
+    () => getCachedAvailableModels(workspace ?? GLOBAL_MODELS_KEY) === undefined,
   );
   useEffect(() => {
     if (!workspace) {
-      setModels(null);
-      setLoading(false);
-      return;
+      // 无项目：走项目无关的全局枚举（SP-1），让选择器冷启动 / 真对话模式下也有模型。
+      const cached = getCachedAvailableModels(GLOBAL_MODELS_KEY);
+      setModels(cached ?? null);
+      setLoading(cached === undefined);
+      if (cached) return;
+      let cancelledGlobal = false;
+      void loadGlobalModels()
+        .then((m) => {
+          if (!cancelledGlobal) {
+            setModels(m);
+            setLoading(false);
+          }
+        })
+        .catch(() => {
+          if (!cancelledGlobal) {
+            setModels(null);
+            setLoading(false);
+          }
+        });
+      return () => {
+        cancelledGlobal = true;
+      };
     }
     const cached = getCachedAvailableModels(workspace);
     // 切到新 workspace 先对齐到它自己的缓存（命中秒显、未命中清空），避免沿用上一个 workspace 的列表。

@@ -264,6 +264,8 @@ export const pi = {
   refreshModelRegistry: () => invoke<RefreshResult>('refresh_model_registry'),
   fetchProviderModels: (baseUrl: string, apiKey: string, api: string) =>
     invoke<string[]>('fetch_provider_models', { baseUrl, apiKey, api }),
+  /** 项目无关地列出运行时解析后的模型（probe-models 子命令）：未打开项目 / 冷启动 / 真对话模式可用。 */
+  listModelsGlobal: () => invoke<unknown>('list_models_global'),
   /** Mermaid 渲染失败时的非流式一次性修复：用当前会话模型生成修正后的 mermaid 代码（不进对话历史）。 */
   fixMermaid: (workspace: string, code: string, error: string) =>
     invoke<string>('fix_mermaid_diagram', { workspace, code, error }),
