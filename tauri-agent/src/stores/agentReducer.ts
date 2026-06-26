@@ -35,6 +35,9 @@ export interface AgentState {
   /** 用户主动中断进行中：abort 触发的 "request aborted" 类报错不该弹红条，置位期间 reducer 丢弃这些
    * 错误（仅抑制用户主动中断，不影响真实失败）。由 ChatView 点停止时置位，agent_start/agent_end 清位。 */
   aborting?: boolean;
+  /** 发送后到后端首个 agent_start 之间的「准备响应中」占位态：发送即置位，agent_start/agent_end/出错清位。
+   * 用于在 isStreaming 尚未为 true 的冷启动/会话预备窗口立即给出等待反馈（消除「不知道在等什么」的空档）。 */
+  awaitingResponse?: boolean;
 }
 
 export function initialAgentState(): AgentState {
@@ -163,13 +166,15 @@ function applyCustomMessage(state: AgentState, msg: AgentMessage): AgentState {
 export function applyEvent(state: AgentState, event: AgentEvent): AgentState {
   switch (event.type) {
     case 'agent_start':
-      // 一轮真正开始流式：清掉「正在重试」指示（成功重连/重发）、上一条错误与中断标记。
-      return { ...state, isStreaming: true, lastError: undefined, retrying: undefined, aborting: false };
+      // 一轮真正开始流式：清掉「正在重试」指示（成功重连/重发）、上一条错误与中断标记，
+      // 并清掉「准备响应中」占位（由 isStreaming 接管等待指示，无缝过渡）。
+      return { ...state, isStreaming: true, awaitingResponse: false, lastError: undefined, retrying: undefined, aborting: false };
 
     case 'agent_end':
       return {
         ...state,
         isStreaming: false,
+        awaitingResponse: false,
         aborting: false,
         messages: state.messages.map((m) =>
           m.kind === 'assistant' ? { ...m, streaming: false } : m,

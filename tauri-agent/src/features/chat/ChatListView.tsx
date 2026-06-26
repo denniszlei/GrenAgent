@@ -24,6 +24,7 @@ export function ChatListView() {
   const { useStore } = useAgentStore();
   const messages = useStore((s) => s.messages);
   const isStreaming = useStore((s) => s.isStreaming);
+  const awaitingResponse = useStore((s) => s.awaitingResponse);
 
   // streaming 中 100ms 节流，避免每 token 触发整列重算（详见 useThrottledValue 契约）。
   const throttledMessages = useThrottledValue(messages, 100, { enabled: isStreaming });
@@ -65,7 +66,7 @@ export function ChatListView() {
   const last = display[display.length - 1];
   const lastIsSteer = last?.kind === 'user' && last.steering === true;
   const showPreparing =
-    isStreaming &&
+    (isStreaming || Boolean(awaitingResponse)) &&
     !lastIsSteer &&
     (!last || (last.kind !== 'turn' && last.kind !== 'tool'));
 
