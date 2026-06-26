@@ -12,6 +12,7 @@ import { pi } from '../../lib/pi';
 import { isUnder, pathsEquivalent } from '../../lib/pathUtils';
 import { syncSidebarOnSend } from '../../lib/sidebarSessionSync';
 import { markScratchUsed } from '../../lib/startupConversation';
+import { createStartupPerf } from '../../lib/startupPerf';
 import { useSessionStore } from '../../store/session';
 import { useAgentStoreContext } from '../../stores/AgentStoreContext';
 import { commandLanes } from '../../lib/commandLanes';
@@ -146,14 +147,27 @@ export function ChatView() {
 
     store.useStore.setState({ lastError: undefined, retrying: undefined });
     if (text || images?.length) store.pushUserMessage(text, images);
+    // 发送即置「准备响应中」：桥接到后端首个 agent_start 之间的冷启动/会话预备窗口，消除无反馈空档。
+    store.useStore.setState({ awaitingResponse: true });
+    // 发送路径性能埋点：拆出 openWorkspace / newSession / getState / promptToStream 各耗时
+    //（DEV 控制台 [PERF-startup] send:<ws>），用于定位「新对话/久置后发送」的延迟究竟卡在哪。
+    const sendPerf = createStartupPerf(`send:${workspace}`);
 
     const ensureSessionForSend = async () => {
       if (!isDraftConversation && activeSessionPath) return;
       if (!isConversation) return;
       const st = useSessionStore.getState();
+      sendPerf.start('openWorkspace');
       const openResult = await pi.openWorkspace(workspace);
-      if (!openResult.sessionFile) await pi.newSession(workspace);
+      sendPerf.end('openWorkspace');
+      if (!openResult.sessionFile) {
+        sendPerf.start('newSession');
+        await pi.newSession(workspace);
+        sendPerf.end('newSession');
+      }
+      sendPerf.start('getState');
       const state = (await pi.getState(workspace)) as { sessionFile?: string };
+      sendPerf.end('getState');
       const path = state.sessionFile ?? openResult.sessionFile;
       if (path) {
         st.setActiveSession(path);
@@ -172,10 +186,13 @@ export function ChatView() {
     };
 
     try {
+      sendPerf.start('ensureSession');
       await ensureSessionForSend();
+      sendPerf.end('ensureSession');
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      store.useStore.setState({ lastError: msg, isStreaming: false });
+      store.useStore.setState({ lastError: msg, isStreaming: false, awaitingResponse: false });
+      sendPerf.report();
       return;
     }
     if (text) void syncSidebarOnSend(workspace, text);
@@ -188,8 +205,16 @@ export function ChatView() {
     > => {
       const beforeCount = store.useStore.getState().messages.length;
       let turnStarted = store.useStore.getState().isStreaming;
+      let streamTimed = turnStarted;
+      sendPerf.start('promptToStream');
       const unsub = store.useStore.subscribe((s) => {
-        if (s.isStreaming) turnStarted = true;
+        if (s.isStreaming) {
+          turnStarted = true;
+          if (!streamTimed) {
+            streamTimed = true;
+            sendPerf.end('promptToStream');
+          }
+        }
       });
       try {
         store.useStore.setState({ lastError: undefined });
@@ -240,17 +265,19 @@ export function ChatView() {
       result = await runOnce();
       retriesDone = attempt;
     }
-    store.useStore.setState({ retrying: undefined });
+    store.useStore.setState({ retrying: undefined, awaitingResponse: false });
+    sendPerf.report();
 
     if (!result.ok && result.aborted) {
       // 中断不是错误：清掉流式态、事件流可能写入的中断错误与中断标记，避免残留红色错误条。
-      store.useStore.setState({ isStreaming: false, lastError: undefined, aborting: false });
+      store.useStore.setState({ isStreaming: false, lastError: undefined, aborting: false, awaitingResponse: false });
     } else if (!result.ok) {
       // 仅在确实重试过时才提示「已重试 N 次」；turn 已开始即失败（未重试）直接显示错误，避免误导。
       const prefix = retriesDone > 0 ? `已重试 ${retriesDone} 次仍失败：` : '';
       store.useStore.setState({
         lastError: `${prefix}${result.error}`,
         isStreaming: false,
+        awaitingResponse: false,
       });
     }
   };
