@@ -6,13 +6,13 @@
 
 - Node.js >= 22.5（sidecar 在 `cli/package.json` 中声明 `engines.node >= 22.5.0`）
 - Rust 工具链：构建桌面端（Tauri 2）时需要，参见 Tauri 官方环境要求
-- pnpm 与 npm：均可用于安装依赖；注意 `tauri.conf.json` 的 `beforeDevCommand` 与 `beforeBuildCommand` 配置为 `pnpm dev` / `pnpm build`，因此 `npm run tauri dev` 会在内部调用 pnpm
+- Bun：`tauri-agent/` 使用 Bun 管理依赖；`tauri.conf.json` 的 `beforeDevCommand` / `beforeBuildCommand` 为 `bun run dev` / `bun run build`，因此 `bun run tauri dev` 会在 Tauri 构建链里自动调用 Bun
 
 ## 安装
 
 ```bash
 cd tauri-agent
-npm install
+bun install
 ```
 
 `cli/` 与 `extensions/` 各自维护依赖，按需在对应目录执行 `npm install`。
@@ -23,13 +23,13 @@ npm install
 
 | 命令 | 说明 |
 | --- | --- |
-| `npm run dev` | 启动 Vite 前端开发服务器 |
-| `npm run tauri dev` | 启动桌面端（Tauri + Rust，内部触发 pnpm） |
-| `npm run build` | 前端构建（`tsc && vite build`） |
-| `npm run build:sidecar` | 构建 Agent sidecar 二进制（`binaries/pi`） |
-| `npm run build:codegraph` | 构建 CodeGraph 二进制 |
-| `npm run test` | 运行前端测试（`vitest --run`） |
-| `npx tsc --noEmit` | 前端类型检查 |
+| `bun run dev` | 启动 Vite 前端开发服务器 |
+| `bun run tauri dev` | 启动桌面端（Tauri + Rust，内部触发 `bun run build`） |
+| `bun run build` | 前端构建（`tsc && vite build`） |
+| `bun run build:sidecar` | 构建 Agent sidecar 二进制（`binaries/pi`） |
+| `bun run build:codegraph` | 构建 CodeGraph 二进制 |
+| `bun run test` | 运行前端测试（`vitest --run`） |
+| `bunx tsc --noEmit` | 前端类型检查 |
 
 sidecar（`cli/`）的相关命令：
 
@@ -45,14 +45,14 @@ sidecar（`cli/`）的相关命令：
 
 ```bash
 cd tauri-agent
-npx tsc --noEmit
-npx vitest run <改动涉及的测试文件>
+bunx tsc --noEmit
+bunx vitest run <改动涉及的测试文件>
 ```
 
 跑单个测试文件比全量快很多，例如：
 
 ```bash
-npx vitest run src/features/sessions/SessionItem.test.tsx
+bunx vitest run src/features/sessions/SessionItem.test.tsx
 ```
 
 ## 测试约定

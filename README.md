@@ -82,21 +82,21 @@ GrenAgent 由以下部分组成：
 
 - Node.js >= 22.5
 - Rust 工具链（构建桌面端时需要，参见 Tauri 2 的环境要求）
-- pnpm（Tauri 的 before-command 默认用 pnpm，详见 [开发指南](./docs/development.md)）
+- Bun（`tauri-agent/` 包管理与 Tauri before-command，详见 [开发指南](./docs/development.md)）
 
 ### 启动前端
 
 ```bash
 cd tauri-agent
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 ### 启动桌面端
 
 ```bash
 cd tauri-agent
-npm run tauri dev
+bun run tauri dev
 ```
 
 ## 内置扩展
