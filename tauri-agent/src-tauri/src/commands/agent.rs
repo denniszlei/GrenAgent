@@ -444,10 +444,13 @@ pub async fn agent_restore_entry(
 /// 磁盘 entry 形如 `{type:"message", id, parentId, timestamp(ISO), message:{role, content, timestamp(ms)}}`，
 /// 删段 / 回退按内层毫秒 timestamp 关联（与 compaction-policy 扩展、前端口径一致）。
 fn find_entry_id_by_timestamp(session_file: &str, timestamp: i64) -> Result<Option<String>, String> {
-    let content =
-        std::fs::read_to_string(session_file).map_err(|e| format!("read session failed: {e}"))?;
+    use std::io::BufRead;
+    // 逐行流式读取，恒定内存（不把整个会话文件一次性读进内存）。仍需扫到末尾取最后匹配。
+    let file = std::fs::File::open(session_file).map_err(|e| format!("read session failed: {e}"))?;
+    let reader = std::io::BufReader::new(file);
     let mut found: Option<String> = None;
-    for line in content.lines() {
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("read session failed: {e}"))?;
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -673,5 +676,33 @@ mod tests {
 
         assert!(!next.contains_key("MCP_SERVERS"));
         assert_eq!(next.get("MCP_DISABLED").map(String::as_str), Some("1"));
+    }
+
+    fn write_tmp(name: &str, body: &str) -> String {
+        use std::io::Write;
+        let mut p = std::env::temp_dir();
+        p.push(name);
+        let mut f = std::fs::File::create(&p).unwrap();
+        f.write_all(body.as_bytes()).unwrap();
+        p.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn find_entry_id_by_timestamp_returns_last_matching_message() {
+        let body = concat!(
+            "{\"type\":\"message\",\"id\":\"a\",\"message\":{\"timestamp\":100}}\n",
+            "{\"type\":\"other\",\"id\":\"skip\",\"message\":{\"timestamp\":100}}\n",
+            "\n",
+            "{\"type\":\"message\",\"id\":\"b\",\"message\":{\"timestamp\":100}}\n",
+            "{\"type\":\"message\",\"id\":\"c\",\"message\":{\"timestamp\":200}}\n"
+        );
+        let path = write_tmp("gren_rewind_test_1.jsonl", body);
+        // 取最后匹配，忽略非 message 行与空行。
+        assert_eq!(
+            find_entry_id_by_timestamp(&path, 100).unwrap(),
+            Some("b".to_string())
+        );
+        assert_eq!(find_entry_id_by_timestamp(&path, 200).unwrap(), Some("c".to_string()));
+        assert_eq!(find_entry_id_by_timestamp(&path, 999).unwrap(), None);
     }
 }
