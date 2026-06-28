@@ -29,7 +29,8 @@ const styles = createStaticStyles(({ css }) => ({
 }));
 
 interface MutedLineProps {
-  icon: LucideIcon;
+  /** 省略则不渲染前导图标（如「已深度思考」摘要行）。 */
+  icon?: LucideIcon;
   text: ReactNode;
   count?: number;
   open?: boolean;
@@ -54,7 +55,7 @@ export const MutedLine = memo(function MutedLine({
       aria-expanded={onToggle ? open : undefined}
       onClick={onToggle}
     >
-      <Icon icon={icon} size={12} />
+      {icon ? <Icon icon={icon} size={12} /> : null}
       <span>
         {text}
         {count ? <span className={styles.count}> · {count} 条</span> : null}

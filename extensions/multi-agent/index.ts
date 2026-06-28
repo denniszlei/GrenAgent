@@ -39,6 +39,19 @@ function tailLines(s: string, maxLen: number): string {
 // sidecar so `wait`/`status`/`cancel` can read/drive background spawns.
 const registries = new Map<string, SubAgentRegistry>();
 const inflight = new Map<string, AbortController>();
+// 单会话累计已 spawn 的子代理数（按 sessionId；拿不到则退回按 cwd）。进程内状态，sidecar 重启清零
+// 可接受（新进程通常对应新一轮）。仅用于「单会话最大子代理数」上限，不影响其余功能逻辑。
+const sessionSpawnCount = new Map<string, number>();
+
+function sessionSpawnKey(ctx: { cwd: string; sessionManager?: { getSessionId?: () => string } }): string {
+  try {
+    const sid = ctx.sessionManager?.getSessionId?.();
+    if (sid && sid.trim()) return sid.trim();
+  } catch {
+    /* sessionManager 不可用：退回 cwd 维度（单工作区通常单活跃会话，近似单会话） */
+  }
+  return ctx.cwd;
+}
 
 function getRegistry(cwd: string): SubAgentRegistry {
   let reg = registries.get(cwd);
@@ -51,6 +64,19 @@ function getRegistry(cwd: string): SubAgentRegistry {
     installCancelWatcher(cwd, (agentId) => cancelSubAgent(agentId, reg!, inflight));
   }
   return reg;
+}
+
+// 把一个前台子代理登记进 inflight，让 UI 取消 / reapStuck 能 abort 它（此前只有后台 spawn 登记，
+// 前台 run/chain/parallel 卡住时取消与 reapStuck 都够不到）。同时把工具的外层 signal 链接进来：
+// 外层一中止，子进程也随之中止。返回的 controller.signal 作为传给 runner 的唯一信号。
+function registerInflight(id: string, outer: AbortSignal | null | undefined): AbortController {
+  const controller = new AbortController();
+  inflight.set(id, controller);
+  if (outer) {
+    if (outer.aborted) controller.abort();
+    else outer.addEventListener("abort", () => controller.abort(), { once: true });
+  }
+  return controller;
 }
 
 function statusText(row: SubAgentRow): string {
@@ -85,6 +111,22 @@ export default function (pi: ExtensionAPI) {
   // Workflow slash-commands (/implement, /scout-and-plan, /implement-and-review)
   // + seed default named agents (scout/planner/reviewer/worker).
   registerWorkflows(pi);
+
+  // 进程启动即回收上一个进程遗留的孤儿子代理（registry.db 里卡在 "running" 的行）并装好取消监听，
+  // 而不是仅靠 spawn_agent 懒触发 getRegistry。否则 sidecar 重启后只要主代理不再 spawn，遗留的
+  // running 行没有任何路径会被清理：前端任务托盘直接读 registry.db，会一直显示"运行中"；面板上的
+  // 取消（写 cancel-requests.jsonl）也因 watcher 未安装而无人消费。session_start 在打开/恢复/
+  // 切换会话时触发，正好覆盖"刚重启"的时机；getRegistry 对同一 cwd 幂等，只在首次 load 时 reap 一次，
+  // 不会误杀进程内正在运行的子代理。子代理进程（PI_IS_SUBAGENT=1）必须跳过：它与兄弟子代理共享
+  // 主工作区 registry，启动即 reap 会把正在并行运行的兄弟误判成孤儿。
+  pi.on("session_start", (_event, ctx) => {
+    if (process.env.PI_IS_SUBAGENT === "1") return;
+    try {
+      getRegistry(ctx.cwd);
+    } catch {
+      /* 回收失败不阻塞 session_start */
+    }
+  });
 
   pi.registerTool({
     name: "spawn_agent",
@@ -196,6 +238,12 @@ export default function (pi: ExtensionAPI) {
       if ((action === "run" || action === "spawn") && process.env.PI_IS_SUBAGENT === "1") {
         throw new Error("子代理禁止再启动子代理（嵌套 spawn 已被拦截）");
       }
+      // 模型策略「禁用子代理」：直接拒绝 run/spawn（status/list/cancel/remove 仍可用于善后历史任务）。
+      if ((action === "run" || action === "spawn") && getConfig("SUBAGENT_MODE")?.trim() === "disabled") {
+        throw new Error(
+          "子代理已被禁用（设置 → 子代理 → 模型策略 = 禁用子代理）。如需使用请改为「继承父模型」或「选定模型」。",
+        );
+      }
 
       if (action === "status" || action === "wait" || action === "cancel" || action === "list" || action === "remove") {
         // Lazy stuck reaping so status/list reflect reality even without the timer.
@@ -231,7 +279,7 @@ export default function (pi: ExtensionAPI) {
           return { content: [{ type: "text", text: statusText(out) }], details: { agentId: out.id, status: out.status } };
         }
         if (action === "wait" && row.status === "running") {
-          const capMs = (Number(getConfig("SUBAGENT_TIMEOUT_MS") ?? "120000") || 120000) + 30000;
+          const capMs = (Number(getConfig("SUBAGENT_TIMEOUT_MS") ?? "300000") || 300000) + 30000;
           await waitForTerminal(registry, id, signal ?? null, capMs);
         }
         const out = registry.get(id) ?? row;
@@ -244,6 +292,23 @@ export default function (pi: ExtensionAPI) {
       const list = normalizeTasks(params);
       const hasChain = (params.chain?.length ?? 0) > 0;
       if (!spawnHasWork(params)) throw new Error("provide `task`, `tasks`, or `chain`");
+
+      // 单会话最大子代理数：达到后拒绝再 spawn（按会话累计；0/空＝不限）。预占在实际 spawn 前，
+      // 防止「先并发起一批再统计」绕过上限；run/spawn/chain 都经过这里（status/list 等已在上方 return）。
+      const rawMax = getConfig("SUBAGENT_MAX_PER_SESSION");
+      const maxPerSession = rawMax == null || rawMax.trim() === "" ? 6 : Number(rawMax) || 0;
+      if (maxPerSession > 0) {
+        const sessionKey = sessionSpawnKey(ctx);
+        const already = sessionSpawnCount.get(sessionKey) ?? 0;
+        const requested = hasChain ? params.chain?.length ?? 0 : list.length;
+        if (already + requested > maxPerSession) {
+          throw new Error(
+            `已达单会话子代理上限（${maxPerSession}）：本会话累计已启动 ${already} 个，本次又请求 ${requested} 个。` +
+              `可在「设置 → 子代理」调大「单会话最大子代理数」，或开新对话重置。`,
+          );
+        }
+        sessionSpawnCount.set(sessionKey, already + requested);
+      }
 
       const profile = resolveProfile(params.profile as ProfileInput | undefined);
       const wantSandbox = profile.isolation === "sandbox";
@@ -329,6 +394,7 @@ export default function (pi: ExtensionAPI) {
             profile: params.profile ? JSON.stringify(profile) : null,
             model: step.model ?? layer.model ?? profileModel ?? null,
           });
+          const controller = registerInflight(id, signal);
           const r = await spawnPiAgent(ctx.cwd, taskText, {
             model: step.model ?? layer.model ?? profileModel,
             systemPrompt: layer.systemPrompt,
@@ -336,14 +402,14 @@ export default function (pi: ExtensionAPI) {
             env: profileEnv,
             mcp: profile.mcp,
             timeoutMs: limits.timeoutMs,
-            signal: signal ?? undefined,
+            signal: controller.signal,
             onUpdate: () => registry.touch(id),
-          });
+          }).finally(() => inflight.delete(id));
           registry.finish(
             id,
             r.ok
               ? { status: "done", output: r.output, exitCode: r.exitCode }
-              : { status: signal?.aborted ? "cancelled" : "error", output: r.output, error: r.error, exitCode: r.exitCode },
+              : { status: controller.signal.aborted ? "cancelled" : "error", output: r.output, error: r.error, exitCode: r.exitCode },
           );
           chainResults.push({ step: i + 1, agent: stepAgent, task: taskText, ok: r.ok, output: r.output, error: r.error });
           if (!r.ok) {
@@ -434,6 +500,7 @@ export default function (pi: ExtensionAPI) {
           profile: params.profile ? JSON.stringify(profile) : null,
           model: model ?? layer.model ?? profileModel ?? null,
         });
+        const controller = registerInflight(id, signal);
         try {
           const r = await spawnPiAgent(runCwd, task, {
             model: model ?? layer.model ?? profileModel,
@@ -442,7 +509,7 @@ export default function (pi: ExtensionAPI) {
             env: profileEnv,
             mcp: profile.mcp,
             timeoutMs: limits.timeoutMs,
-            signal: signal ?? undefined,
+            signal: controller.signal,
             onUpdate: (u) => {
               registry.touch(id); // heartbeat → stuck detection
               if (onUpdate) {
@@ -456,12 +523,29 @@ export default function (pi: ExtensionAPI) {
             },
           });
           if (!r.ok) {
+            const aborted = controller.signal.aborted;
             registry.finish(id, {
-              status: signal?.aborted ? "cancelled" : "error",
+              status: aborted ? "cancelled" : "error",
               output: r.output,
               error: r.error,
               exitCode: r.exitCode,
             });
+            // 超时被杀但已产出实质内容：保留「已写部分」返回（附截断说明），而不是抛错把成果丢掉。
+            if (!aborted && r.partial && r.output.trim()) {
+              const partialText =
+                `${r.output}\n\n_(超时截断：${r.error ?? "timeout"}；以上为已产出部分)_` +
+                (isolationDowngraded ? downgradeNote : "");
+              return {
+                content: [{ type: "text", text: partialText }],
+                details: {
+                  agentId: id,
+                  exitCode: r.exitCode,
+                  partial: true,
+                  transcript: tailLines(r.transcript, TRANSCRIPT_CAP),
+                  ...(isolationDowngraded ? { isolationDowngraded: true } : {}),
+                },
+              };
+            }
             throw new Error(`sub-agent failed (exit ${r.exitCode}): ${r.error ?? "unknown error"}`);
           }
           const diff = wt ? await worktreeDiff(wt.dir) : undefined;
@@ -482,51 +566,74 @@ export default function (pi: ExtensionAPI) {
             },
           };
         } finally {
+          inflight.delete(id);
           if (wt) await wt.cleanup();
         }
       }
 
-      const results: Array<{ task: string; ok: boolean; output: string; error?: string }> = [];
+      const results: Array<{ task: string; ok: boolean; output: string; error?: string; partial?: boolean }> = new Array(
+        list.length,
+      );
       const concurrency = Math.max(1, limits.maxConcurrency ?? MAX_CONCURRENCY);
-      for (let i = 0; i < list.length; i += concurrency) {
-        const batch = list.slice(i, i + concurrency);
-        const settled = await Promise.all(
-          batch.map(async (t) => {
-            const layer = agentLayer(t.agent);
-            const id = SubAgentRegistry.genId();
-            registry.create({
-              id,
-              task: t.task,
-              profile: params.profile ? JSON.stringify(profile) : null,
-              model: t.model ?? layer.model ?? profileModel ?? null,
-            });
-            const r = await spawnPiAgent(ctx.cwd, t.task, {
-              model: t.model ?? layer.model ?? profileModel,
-              systemPrompt: layer.systemPrompt,
-              tools: layer.tools,
-              env: profileEnv,
-              mcp: profile.mcp,
-              timeoutMs: limits.timeoutMs,
-              signal: signal ?? undefined,
-              onUpdate: () => registry.touch(id),
-            });
-            registry.finish(
-              id,
-              r.ok
-                ? { status: "done", output: r.output, exitCode: r.exitCode }
-                : { status: signal?.aborted ? "cancelled" : "error", output: r.output, error: r.error, exitCode: r.exitCode },
-            );
-            return r;
-          }),
-        );
-        settled.forEach((r, j) => results.push({ task: batch[j].task, ok: r.ok, output: r.output, error: r.error }));
-      }
+      const runOne = async (i: number): Promise<void> => {
+        const t = list[i];
+        let id: string | undefined;
+        try {
+          const layer = agentLayer(t.agent);
+          const subId = SubAgentRegistry.genId();
+          id = subId;
+          registry.create({
+            id: subId,
+            task: t.task,
+            profile: params.profile ? JSON.stringify(profile) : null,
+            model: t.model ?? layer.model ?? profileModel ?? null,
+          });
+          const controller = registerInflight(subId, signal);
+          const r = await spawnPiAgent(ctx.cwd, t.task, {
+            model: t.model ?? layer.model ?? profileModel,
+            systemPrompt: layer.systemPrompt,
+            tools: layer.tools,
+            env: profileEnv,
+            mcp: profile.mcp,
+            timeoutMs: limits.timeoutMs,
+            signal: controller.signal,
+            onUpdate: () => registry.touch(subId),
+          }).finally(() => inflight.delete(subId));
+          registry.finish(
+            subId,
+            r.ok
+              ? { status: "done", output: r.output, exitCode: r.exitCode }
+              : { status: controller.signal.aborted ? "cancelled" : "error", output: r.output, error: r.error, exitCode: r.exitCode },
+          );
+          results[i] = { task: t.task, ok: r.ok, output: r.output, error: r.error, partial: r.partial };
+        } catch (e) {
+          // 单个任务异常（如未知 agent、registry 写入失败）不应 reject 整个 Promise.all 而遗弃其它
+          // 正在运行的兄弟任务：就地记为该任务的失败结果，其余 worker 照常跑完。
+          const msg = String((e as Error)?.message ?? e);
+          if (id) registry.finish(id, { status: "error", error: msg, exitCode: -1 });
+          results[i] = { task: t.task, ok: false, output: "", error: msg };
+        }
+      };
+      // 滑动窗口并发：concurrency 个 worker 各自从队列取下一个任务，单个卡住只占一个槽位——不再像
+      // 「分批 + Promise.all」那样被批内最慢/卡住的一个拖住，导致后续任务永远不开始。
+      let nextIndex = 0;
+      const worker = async (): Promise<void> => {
+        for (let i = nextIndex++; i < list.length; i = nextIndex++) {
+          await runOne(i);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(concurrency, list.length) }, () => worker()));
 
       const body = results
-        .map(
-          (r, i) =>
-            `## Sub-agent ${i + 1}${r.ok ? "" : " (failed)"}\nTask: ${r.task}\n\n${r.ok ? r.output || "(no output)" : `Error: ${r.error}`}`,
-        )
+        .map((r, i) => {
+          const head = `## Sub-agent ${i + 1}${r.ok ? "" : " (failed)"}\nTask: ${r.task}`;
+          if (r.ok) return `${head}\n\n${r.output || "(no output)"}`;
+          // 失败但已产出部分内容（超时截断）：保留已写部分 + 超时原因，而不是丢成纯 Error。
+          if (r.partial && r.output.trim()) {
+            return `${head}\n\n${r.output}\n\n_(超时截断：${r.error ?? "timeout"}；以上为已产出部分)_`;
+          }
+          return `${head}\n\nError: ${r.error}`;
+        })
         .join("\n\n---\n\n");
 
       return {

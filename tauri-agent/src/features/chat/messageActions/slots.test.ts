@@ -55,4 +55,54 @@ describe('buildActionItem', () => {
       expect(item.label).toContain('即将支持');
     }
   });
+
+  const notify = { success: vi.fn(), error: vi.fn() };
+
+  it('exclude：未排除 + 带 timestamp/onExclude → 「移出上下文」可点击', () => {
+    const onExclude = vi.fn();
+    const item = buildActionItem(
+      'exclude',
+      { role: 'user', text: 'x', timestamp: 50, onExclude },
+      notify,
+    );
+    expect(item.label).toBe('移出上下文');
+    expect(item.disabled).toBe(false);
+    item.onClick!();
+    expect(onExclude).toHaveBeenCalledWith(50);
+  });
+
+  it('exclude：已排除 → 「恢复到上下文」，点击调 onRestore', () => {
+    const onRestore = vi.fn();
+    const item = buildActionItem(
+      'exclude',
+      { role: 'user', text: 'x', timestamp: 50, excluded: true, onRestore },
+      notify,
+    );
+    expect(item.label).toBe('恢复到上下文');
+    item.onClick!();
+    expect(onRestore).toHaveBeenCalledWith(50);
+  });
+
+  it('exclude：无 timestamp → 禁用且无 onClick', () => {
+    const item = buildActionItem('exclude', { role: 'user', text: 'x' }, notify);
+    expect(item.disabled).toBe(true);
+    expect(item.onClick).toBeUndefined();
+  });
+
+  it('rewind：带 timestamp/onRewind 可点击，缺失则禁用', () => {
+    const onRewind = vi.fn();
+    const ok = buildActionItem(
+      'rewind',
+      { role: 'user', text: 'x', timestamp: 9, onRewind },
+      notify,
+    );
+    expect(ok.label).toBe('回退到此');
+    expect(ok.disabled).toBe(false);
+    ok.onClick!();
+    expect(onRewind).toHaveBeenCalledWith(9);
+
+    const disabled = buildActionItem('rewind', { role: 'user', text: 'x' }, notify);
+    expect(disabled.disabled).toBe(true);
+    expect(disabled.onClick).toBeUndefined();
+  });
 });

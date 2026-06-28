@@ -2,7 +2,7 @@ import { useRef, type CSSProperties } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'motion/react';
 import { Icon } from '@lobehub/ui';
 import { cssVar } from 'antd-style';
-import { AlertTriangle, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Loader2, RefreshCw, X } from 'lucide-react';
 import { ChatListView } from './ChatListView';
 import { ChatListSkeleton } from './ChatListSkeleton';
 import { ChatInput } from './ChatInput';
@@ -93,6 +93,7 @@ export function ChatView() {
   const messages = store.useStore((s) => s.messages);
   const lastError = store.useStore((s) => s.lastError);
   const retrying = store.useStore((s) => s.retrying);
+  const compacting = store.useStore((s) => s.compacting);
   const isEmpty = messages.length === 0;
   const isConversation = Boolean(worksDir && isUnder(workspace, worksDir));
   const isDraftConversation = Boolean(draftConversationCwd && pathsEquivalent(draftConversationCwd, workspace));
@@ -309,6 +310,13 @@ export function ChatView() {
     </div>
   ) : null;
 
+  const compactingIndicator = compacting ? (
+    <div style={retryBannerStyle} data-testid="compaction-indicator">
+      <Icon icon={Loader2} spin size={14} />
+      <span style={{ flex: 1, minWidth: 0 }}>正在压缩上下文…</span>
+    </div>
+  ) : null;
+
   const handleAbort = async () => {
     // 标记用户主动中断：runOnce 据此把本轮判为中断（不报错、不重试），无论中断如何体现。
     userAbortedRef.current = true;
@@ -353,6 +361,7 @@ export function ChatView() {
                 </motion.div>
               </AnimatePresence>
               {retryIndicator}
+              {compactingIndicator}
               {errorBanner}
               <ChatInput onSend={handleSend} onAbort={handleAbort} />
             </motion.div>
@@ -366,6 +375,7 @@ export function ChatView() {
                 形变动画把输入框弹动一下。作为兄弟节点插在输入框上方，高度变化由上方 flex:1 的消息区吸收，
                 输入框位置不动、不再弹动。 */}
             {retryIndicator}
+            {compactingIndicator}
             {errorBanner}
             <motion.div
               layout

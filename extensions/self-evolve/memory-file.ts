@@ -19,7 +19,7 @@ export function formatInjection(project: string, global: string, maxChars: numbe
     const block = `# ${part.title}\n\n${part.body}`;
     const next = out ? `${out}\n\n${block}` : block;
     if (next.length > maxChars) {
-      if (!out) out = next.slice(0, maxChars);
+      if (!out) out = [...next].slice(0, maxChars).join("");
       break;
     }
     out = next;

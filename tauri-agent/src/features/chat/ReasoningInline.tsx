@@ -1,6 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { Brain } from 'lucide-react';
 import { MutedLine } from './conv/MutedLine';
 import { LazyMarkdown } from './LazyMarkdown';
 import { cardStyles } from '../tools/cardStyles';
@@ -102,7 +101,7 @@ function ReasoningInlineInner({ content, streaming, durationMs }: ReasoningInlin
 
   return (
     <div className={styles.wrap} data-testid="reasoning-inline">
-      <MutedLine icon={Brain} text={label} open={expanded} onToggle={() => setExpanded((v) => !v)} />
+      <MutedLine text={label} open={expanded} onToggle={() => setExpanded((v) => !v)} />
       {expanded ? (
         <LazyMarkdown variant="chat" fontSize={13}>
           {text}

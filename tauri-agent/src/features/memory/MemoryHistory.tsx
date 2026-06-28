@@ -1,12 +1,9 @@
 import { ActionIcon, Flexbox } from '@lobehub/ui';
-import { cssVar } from 'antd-style';
+import { createStaticStyles, cssVar } from 'antd-style';
 import { Undo2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useAgentStoreContext } from '../../stores/AgentStoreContext';
 import { pi, type MemHistoryItem } from '../../lib/pi';
-
-const muted = 'var(--gren-fg-muted, #9aa1ac)';
-const border = '1px solid var(--gren-border, rgba(255,255,255,0.08))';
 
 const opColor: Record<string, string> = {
   ADD: cssVar.colorSuccess,
@@ -14,6 +11,38 @@ const opColor: Record<string, string> = {
   DELETE: cssVar.colorError,
   ROLLBACK: cssVar.colorInfo,
 };
+
+const styles = createStaticStyles(({ css }) => ({
+  empty: css`
+    padding: 14px;
+    color: ${cssVar.colorTextTertiary};
+    font-size: 12px;
+  `,
+  row: css`
+    padding: 8px 12px;
+    border-block-end: 1px solid ${cssVar.colorBorderSecondary};
+    font-size: 12px;
+    transition: background 0.12s ease;
+
+    &:hover {
+      background: ${cssVar.colorFillQuaternary};
+    }
+  `,
+  op: css`
+    min-width: 64px;
+    font-weight: 600;
+  `,
+  diff: css`
+    overflow: hidden;
+    color: ${cssVar.colorText};
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  `,
+  meta: css`
+    color: ${cssVar.colorTextTertiary};
+    font-size: 11px;
+  `,
+}));
 
 interface MemoryHistoryProps {
   /** 仅看某条记忆的版本史；不传＝全量时间线。 */
@@ -47,10 +76,10 @@ export function MemoryHistory({ memoryId, refreshToken }: MemoryHistoryProps) {
     [workspace, reload],
   );
 
-  if (error) return <div style={{ padding: 14, fontSize: 12, color: muted }}>读取失败：{error}</div>;
+  if (error) return <div className={styles.empty}>读取失败：{error}</div>;
   if (rows.length === 0)
     return (
-      <div data-testid="mem-hist-empty" style={{ padding: 14, fontSize: 12, color: muted }}>
+      <div className={styles.empty} data-testid="mem-hist-empty">
         暂无变更历史
       </div>
     );
@@ -63,15 +92,15 @@ export function MemoryHistory({ memoryId, refreshToken }: MemoryHistoryProps) {
           horizontal
           align="center"
           gap={8}
+          className={styles.row}
           data-testid={`mem-hist-${r.historyId}`}
-          style={{ padding: '8px 12px', borderBottom: border, fontSize: 12 }}
         >
-          <span style={{ color: opColor[r.op] ?? muted, fontWeight: 600, minWidth: 64 }}>{r.op}</span>
+          <span className={styles.op} style={{ color: opColor[r.op] ?? cssVar.colorTextTertiary }}>
+            {r.op}
+          </span>
           <Flexbox style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {(r.oldText ?? '∅') + ' → ' + (r.newText ?? '∅')}
-            </span>
-            <span style={{ color: muted, fontSize: 11 }}>
+            <span className={styles.diff}>{(r.oldText ?? '∅') + ' → ' + (r.newText ?? '∅')}</span>
+            <span className={styles.meta}>
               {r.scope} · v{r.version}
               {r.reason ? ` · ${r.reason}` : ''}
             </span>

@@ -24,8 +24,10 @@ function transcriptOf(result: unknown): string {
   if (!result || typeof result !== 'object') return '';
   const details = (result as { details?: unknown }).details;
   if (!details || typeof details !== 'object') return '';
-  const t = (details as { transcript?: unknown }).transcript;
-  return typeof t === 'string' ? t : '';
+  const d = details as { transcript?: unknown; transcriptTail?: unknown };
+  // 终态有完整 transcript；运行中后端只推尾部 transcriptTail（防 O(n^2) 串卡爆前端）。
+  if (typeof d.transcript === 'string' && d.transcript) return d.transcript;
+  return typeof d.transcriptTail === 'string' ? d.transcriptTail : '';
 }
 
 /** transcript 缺失时（如多任务/旧数据）的兜底：取结果文本块。 */

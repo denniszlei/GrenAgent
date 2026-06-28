@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  commandMatchesQuery,
   getFrontendCommands,
   mergeCommands,
   parseCommands,
@@ -103,6 +104,41 @@ describe('toSlashMenuItems', () => {
     expect(group.items[0].value).toBe('api:skill:caveman');
     expect(group.items[0].keywords).toContain('caveman');
     expect(group.items[0].keywords).toContain('skill:caveman');
+  });
+});
+
+describe('commandMatchesQuery', () => {
+  const cmd = (name: string, description?: string): PiCommand => ({
+    name,
+    description,
+    source: 'api',
+    apiSource: 'extension',
+  });
+
+  it('matches by command-name prefix', () => {
+    expect(commandMatchesQuery(cmd('compact'), 'com')).toBe(true);
+    expect(commandMatchesQuery(cmd('compact'), 'COM')).toBe(true);
+  });
+
+  it('does NOT match when the query is only a non-prefix substring of the name', () => {
+    // 旧实现用 includes 会把 'pact' 命中 'compact'——这正是用户反馈的「非前缀也搜出来」。
+    expect(commandMatchesQuery(cmd('compact'), 'pact')).toBe(false);
+  });
+
+  it('does NOT match against the description', () => {
+    // 名字不以 q 开头、只有描述里含 q，不应命中。
+    expect(commandMatchesQuery(cmd('review', '压缩上下文'), '压缩')).toBe(false);
+  });
+
+  it('matches a skill by its display name (skill: prefix stripped)', () => {
+    const skill: PiCommand = { name: 'skill:caveman', source: 'api', apiSource: 'skill' };
+    expect(commandMatchesQuery(skill, 'cave')).toBe(true);
+    expect(commandMatchesQuery(skill, 'skill')).toBe(true); // 原始名前缀仍可匹配
+  });
+
+  it('empty query matches everything', () => {
+    expect(commandMatchesQuery(cmd('anything'), '')).toBe(true);
+    expect(commandMatchesQuery(cmd('anything'), '   ')).toBe(true);
   });
 });
 

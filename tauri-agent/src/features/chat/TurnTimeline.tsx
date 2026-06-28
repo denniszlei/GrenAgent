@@ -1,10 +1,26 @@
-import { Suspense, lazy, memo } from 'react';
+import { Suspense, lazy, memo, type ReactNode } from 'react';
+import { Icon } from '@lobehub/ui';
+import { EyeOff } from 'lucide-react';
+import { createStaticStyles } from 'antd-style';
 import { ChatItemShell } from './ChatItemShell';
 import { MessageActionBar } from './messageActions/MessageActionBar';
+import type { MessageActionContext } from './messageActions/types';
 import { ReasoningInline } from './ReasoningInline';
 import { LazyMarkdown } from './LazyMarkdown';
 import type { TimelineSegment } from './groupMessages';
 import { buildTurnRows } from './turnRows';
+import { useOptionalAgentStoreContext } from '../../stores/AgentStoreContext';
+import type { AgentStoreApi } from '../../stores/agent';
+
+const styles = createStaticStyles(({ css, cssVar }) => ({
+  excludedTag: css`
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: ${cssVar.colorTextTertiary};
+  `,
+}));
 
 const ToolExecution = lazy(() =>
   import('../tools/ToolExecution').then((m) => ({ default: m.ToolExecution })),
@@ -15,6 +31,8 @@ const ContextToolGroup = lazy(() =>
 
 interface TurnTimelineProps {
   segments: TimelineSegment[];
+  /** 该轮首条 assistant 消息的 pi 毫秒 timestamp：启用「移出上下文 / 回退到此」与排除标记。 */
+  timestamp?: number;
 }
 
 function SegmentItem({ segment }: { segment: TimelineSegment }) {
@@ -86,17 +104,33 @@ const MemoSegment = memo(SegmentItem, (prev, next) => {
  * buildTurnRows 只是 O(n) 重排，开销可忽略。真正的重渲染边界在 MemoSegment 与 ContextToolGroup
  * 自身（按值比较），由它们拦住已完成段的重复渲染。
  */
-export function TurnTimeline({ segments }: TurnTimelineProps) {
+/** 纯展示（不含 hooks）：供「带 store 订阅」与「无 store 降级」两条路径复用。 */
+function renderTurn(
+  segments: TimelineSegment[],
+  timestamp: number | undefined,
+  excluded: boolean,
+): ReactNode {
   const rows = buildTurnRows(segments);
   const text = segments
     .map((s) => (s.kind === 'text' ? s.content : ''))
     .join('\n')
     .trim();
+  const ctx: MessageActionContext = { role: 'assistant', text, timestamp };
   const actions = text ? (
-    <MessageActionBar ctx={{ role: 'assistant', text }} bar={['copy']} />
+    <MessageActionBar
+      ctx={ctx}
+      bar={['rewind', 'exclude', 'copy']}
+      menu={['copy', 'divider', 'rewind', 'exclude']}
+    />
   ) : undefined;
   return (
     <ChatItemShell placement="left" actions={actions}>
+      {excluded ? (
+        <span className={styles.excludedTag}>
+          <Icon icon={EyeOff} size="small" />
+          已移出上下文
+        </span>
+      ) : null}
       {rows.map((row) =>
         row.kind === 'context' ? (
           <Suspense key={row.id} fallback={null}>
@@ -108,4 +142,26 @@ export function TurnTimeline({ segments }: TurnTimelineProps) {
       )}
     </ChatItemShell>
   );
+}
+
+/** 有 store 上下文 + 带 timestamp：订阅排除态以显示标记并切换操作。 */
+function ExcludableTurn({
+  segments,
+  timestamp,
+  store,
+}: {
+  segments: TimelineSegment[];
+  timestamp: number;
+  store: AgentStoreApi;
+}) {
+  const excluded = store.useStore((s) => s.excluded.has(timestamp));
+  return renderTurn(segments, timestamp, excluded);
+}
+
+export function TurnTimeline({ segments, timestamp }: TurnTimelineProps) {
+  const storeCtx = useOptionalAgentStoreContext();
+  if (storeCtx && timestamp != null) {
+    return <ExcludableTurn segments={segments} timestamp={timestamp} store={storeCtx.store} />;
+  }
+  return renderTurn(segments, timestamp, false);
 }

@@ -3,17 +3,18 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { ThemeProvider } from '@lobehub/ui';
 import type { ChatMessage } from '../../stores/agentReducer';
 
-// AgentStoreContext mock：直通假 useAgentStore（zustand-like 选择器）。
-const mockState: { messages: ChatMessage[]; isStreaming: boolean } = {
+// AgentStoreContext mock：直通假 useAgentStore（zustand-like 选择器）。excluded 供气泡上下文控制动作订阅。
+const mockState: { messages: ChatMessage[]; isStreaming: boolean; excluded: Set<number> } = {
   messages: [],
   isStreaming: false,
+  excluded: new Set(),
 };
 vi.mock('../../stores/AgentStoreContext', () => {
+  const store = { useStore: (selector: any) => selector(mockState) };
   return {
-    useAgentStore: () => ({
-      useStore: (selector: any) => selector(mockState),
-    }),
-    useAgentStoreContext: () => ({ workspace: '/test', store: {} }),
+    useAgentStore: () => store,
+    useAgentStoreContext: () => ({ workspace: '/test', store }),
+    useOptionalAgentStoreContext: () => ({ workspace: '/test', store }),
     AgentStoreProvider: ({ children }: any) => <>{children}</>,
   };
 });
@@ -24,6 +25,7 @@ afterEach(() => {
   cleanup();
   mockState.messages = [];
   mockState.isStreaming = false;
+  mockState.excluded = new Set();
 });
 
 function setMessages(msgs: ChatMessage[]) {

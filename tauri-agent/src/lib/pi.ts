@@ -220,6 +220,21 @@ export const pi = {
   /** 恢复被移出上下文的消息。 */
   restoreEntry: (workspace: string, timestamp: number) =>
     invoke<unknown>('agent_restore_entry', { workspace, timestamp }),
+  /** 回退到此：把会话回退到某条消息（按毫秒 timestamp）——后端读会话树把 timestamp 映射成 entry id 后 fork 出新分支并切换。 */
+  rewindTo: (workspace: string, timestamp: number) =>
+    invoke<unknown>('agent_rewind_to', { workspace, timestamp }),
+  /**
+   * 直接按 entry id fork 出新分支（保留原路径，符合会话树模型）。
+   * 预留给后续 Phase（手动 fork / 编辑后重生成）：当前前端无调用方，对应后端 command 已存在并注册。
+   */
+  fork: (workspace: string, entryId: string) =>
+    invoke<unknown>('agent_fork', { workspace, entryId }),
+  /**
+   * 预览 fork 后将保留的消息。
+   * 预留给后续 Phase（回退 / 编辑前预览）：当前前端无调用方，对应后端 command 已存在并注册。
+   */
+  getForkMessages: (workspace: string) =>
+    invoke<{ messages: AgentMessage[] }>('agent_get_fork_messages', { workspace }),
   compact: (workspace: string) => invoke<unknown>('agent_compact', { workspace }),
   getState: (workspace: string) => invoke<unknown>('agent_get_state', { workspace }),
   getMessages: (workspace: string) => invoke<{ messages: AgentMessage[] }>('agent_get_messages', { workspace }),

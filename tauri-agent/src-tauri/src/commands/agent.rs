@@ -440,6 +440,56 @@ pub async fn agent_restore_entry(
     .await
 }
 
+/// 扫描会话 jsonl，返回内层 `message.timestamp == ts` 的 entry 的顶层 `id`（取最后匹配，规避同 ts 多分支）。
+/// 磁盘 entry 形如 `{type:"message", id, parentId, timestamp(ISO), message:{role, content, timestamp(ms)}}`，
+/// 删段 / 回退按内层毫秒 timestamp 关联（与 compaction-policy 扩展、前端口径一致）。
+fn find_entry_id_by_timestamp(session_file: &str, timestamp: i64) -> Result<Option<String>, String> {
+    let content =
+        std::fs::read_to_string(session_file).map_err(|e| format!("read session failed: {e}"))?;
+    let mut found: Option<String> = None;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(entry) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if entry.get("type").and_then(|v| v.as_str()) != Some("message") {
+            continue;
+        }
+        let ts = entry
+            .get("message")
+            .and_then(|m| m.get("timestamp"))
+            .and_then(|v| v.as_i64());
+        if ts == Some(timestamp) {
+            if let Some(id) = entry.get("id").and_then(|v| v.as_str()) {
+                found = Some(id.to_string());
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// 回退到此：把会话回退到某条消息（按毫秒 timestamp）。读当前会话文件把 timestamp 映射成 entry id，
+/// 再发 `Fork` 创建新分支并切换（保留原路径，符合树模型；不物理删盘）。
+/// 前端无法拿到顶层 entry id（RPC get_messages 只暴露内层 message），故在此用会话文件做映射。
+#[tauri::command]
+pub async fn agent_rewind_to(
+    workspace: String,
+    timestamp: i64,
+    mgr: State<'_, Arc<PiManager>>,
+) -> Result<Value, String> {
+    let state = send(&mgr, &workspace, PiOutbound::GetState { id: None }).await?;
+    let session_file = state
+        .get("sessionFile")
+        .and_then(|v| v.as_str())
+        .ok_or("no active session file")?;
+    let entry_id = find_entry_id_by_timestamp(session_file, timestamp)?
+        .ok_or_else(|| format!("no message with timestamp {timestamp} in session"))?;
+    send(&mgr, &workspace, PiOutbound::Fork { id: None, entry_id }).await
+}
+
 #[tauri::command]
 pub async fn agent_compact(
     workspace: String,

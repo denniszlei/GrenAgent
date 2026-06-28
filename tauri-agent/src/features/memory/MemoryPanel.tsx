@@ -1,5 +1,6 @@
-import { ActionIcon, Button, Flexbox, Input, Modal, TextArea } from '@lobehub/ui';
+import { ActionIcon, Button, Flexbox, Input, Modal, Segmented, TextArea } from '@lobehub/ui';
 import { Popconfirm } from 'antd';
+import { createStaticStyles, cssVar } from 'antd-style';
 import { ArrowUp, Eraser, PencilLine, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAgentStoreContext } from '../../stores/AgentStoreContext';
@@ -7,15 +8,81 @@ import { pi, type MemItem, type MemStats } from '../../lib/pi';
 import { ManagerLayout } from '../common/ManagerLayout';
 import { MemoryHistory } from './MemoryHistory';
 
-const muted = 'var(--gren-fg-muted, #9aa1ac)';
-const border = '1px solid var(--gren-border, rgba(255,255,255,0.08))';
-
 type ScopeFilter = 'all' | 'project' | 'global';
 const FILTERS: { id: ScopeFilter; label: string }[] = [
   { id: 'all', label: '全部' },
   { id: 'project', label: '项目' },
   { id: 'global', label: '全局' },
 ];
+
+const styles = createStaticStyles(({ css }) => ({
+  header: css`
+    width: 100%;
+    color: ${cssVar.colorTextSecondary};
+    font-size: 13px;
+  `,
+  stats: css`
+    color: ${cssVar.colorTextTertiary};
+  `,
+  empty: css`
+    padding: 14px;
+    color: ${cssVar.colorTextTertiary};
+    font-size: 12px;
+  `,
+  item: css`
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    border-block-end: 1px solid ${cssVar.colorBorderSecondary};
+    background: transparent;
+    color: ${cssVar.colorText};
+    font-size: 12px;
+    text-align: start;
+    cursor: pointer;
+    transition: background 0.12s ease;
+
+    &:hover {
+      background: ${cssVar.colorFillTertiary};
+    }
+  `,
+  itemActive: css`
+    background: ${cssVar.colorFillSecondary};
+
+    &:hover {
+      background: ${cssVar.colorFillSecondary};
+    }
+  `,
+  itemText: css`
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  `,
+  itemMeta: css`
+    color: ${cssVar.colorTextTertiary};
+    font-size: 11px;
+  `,
+  detailText: css`
+    color: ${cssVar.colorText};
+    font-size: 14px;
+    line-height: 1.6;
+  `,
+  detailMeta: css`
+    color: ${cssVar.colorTextTertiary};
+    font-size: 12px;
+  `,
+  sectionTitle: css`
+    margin-block-start: 8px;
+    color: ${cssVar.colorTextTertiary};
+    font-size: 12px;
+  `,
+  placeholder: css`
+    color: ${cssVar.colorTextTertiary};
+    font-size: 13px;
+  `,
+}));
 
 function formatTime(ms: number): string {
   if (!ms) return '';
@@ -132,60 +199,28 @@ export function MemoryPanel() {
   }, [draftText, draftCat, editor, workspace, reload]);
 
   const header = (
-    <Flexbox horizontal align="center" gap={12} data-testid="mem-header" style={{ fontSize: 13, width: '100%' }}>
-      <span>{stats ? `项目 ${stats.project} · 全局 ${stats.global}` : '加载中…'}</span>
-      <Flexbox horizontal gap={4}>
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            data-testid={`mem-filter-${f.id}`}
-            onClick={() => setFilter(f.id)}
-            style={{
-              padding: '2px 10px',
-              borderRadius: 6,
-              border,
-              cursor: 'pointer',
-              fontSize: 12,
-              background: filter === f.id ? 'var(--gren-rail-active, rgba(255,255,255,0.08))' : 'transparent',
-              color: filter === f.id ? 'var(--gren-fg, inherit)' : muted,
-            }}
-          >
-            {f.label}
-          </button>
-        ))}
-      </Flexbox>
-      <Flexbox horizontal gap={4}>
-        <button
-          data-testid="mem-view-memories"
-          onClick={() => setView('memories')}
-          style={{
-            padding: '2px 10px',
-            borderRadius: 6,
-            border,
-            cursor: 'pointer',
-            fontSize: 12,
-            background: view === 'memories' ? 'var(--gren-rail-active, rgba(255,255,255,0.08))' : 'transparent',
-            color: view === 'memories' ? 'var(--gren-fg, inherit)' : muted,
-          }}
-        >
-          记忆
-        </button>
-        <button
-          data-testid="mem-view-history"
-          onClick={() => setView('history')}
-          style={{
-            padding: '2px 10px',
-            borderRadius: 6,
-            border,
-            cursor: 'pointer',
-            fontSize: 12,
-            background: view === 'history' ? 'var(--gren-rail-active, rgba(255,255,255,0.08))' : 'transparent',
-            color: view === 'history' ? 'var(--gren-fg, inherit)' : muted,
-          }}
-        >
-          历史
-        </button>
-      </Flexbox>
+    <Flexbox horizontal align="center" gap={12} className={styles.header} data-testid="mem-header">
+      <span className={styles.stats}>
+        {stats ? `项目 ${stats.project} · 全局 ${stats.global}` : '加载中…'}
+      </span>
+      <Segmented
+        size="small"
+        value={filter}
+        onChange={(v) => setFilter(v as ScopeFilter)}
+        options={FILTERS.map((f) => ({
+          label: <span data-testid={`mem-filter-${f.id}`}>{f.label}</span>,
+          value: f.id,
+        }))}
+      />
+      <Segmented
+        size="small"
+        value={view}
+        onChange={(v) => setView(v as 'memories' | 'history')}
+        options={[
+          { label: <span data-testid="mem-view-memories">记忆</span>, value: 'memories' },
+          { label: <span data-testid="mem-view-history">历史</span>, value: 'history' },
+        ]}
+      />
       <div style={{ flex: 1 }} />
       <ActionIcon data-testid="mem-add" icon={Plus} size="small" title="手动添加" onClick={() => void onAdd()} />
       <Popconfirm
@@ -213,10 +248,10 @@ export function MemoryPanel() {
 
   let list: ReactNode;
   if (error) {
-    list = <div style={{ padding: 14, fontSize: 12, color: muted }}>读取失败：{error}</div>;
+    list = <div className={styles.empty}>读取失败：{error}</div>;
   } else if (filtered.length === 0) {
     list = (
-      <div data-testid="mem-empty" style={{ padding: 14, fontSize: 12, color: muted }}>
+      <div className={styles.empty} data-testid="mem-empty">
         暂无记忆
       </div>
     );
@@ -229,26 +264,12 @@ export function MemoryPanel() {
           return (
             <button
               key={key}
+              className={active ? `${styles.item} ${styles.itemActive}` : styles.item}
               data-testid={`mem-item-${m.scope}-${m.id}`}
               onClick={() => setSelectedKey(key)}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 4,
-                padding: '8px 12px',
-                border: 'none',
-                borderBottom: border,
-                cursor: 'pointer',
-                textAlign: 'left',
-                background: active ? 'var(--gren-rail-active, rgba(255,255,255,0.08))' : 'transparent',
-                color: 'inherit',
-                fontSize: 12,
-              }}
             >
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {m.text}
-              </span>
-              <span style={{ color: muted, fontSize: 11 }}>
+              <span className={styles.itemText}>{m.text}</span>
+              <span className={styles.itemMeta}>
                 {m.scope === 'global' ? '全局' : '项目'}
                 {m.category ? ` · ${m.category}` : ''}
               </span>
@@ -261,8 +282,8 @@ export function MemoryPanel() {
 
   const detail = selected ? (
     <Flexbox gap={10} data-testid="mem-detail">
-      <div style={{ fontSize: 14, lineHeight: 1.6 }}>{selected.text}</div>
-      <Flexbox gap={4} style={{ fontSize: 12, color: muted }}>
+      <div className={styles.detailText}>{selected.text}</div>
+      <Flexbox gap={4} className={styles.detailMeta}>
         <span>scope：{selected.scope === 'global' ? '全局' : '项目'}</span>
         <span>category：{selected.category ?? '（无）'}</span>
         <span>时间：{formatTime(selected.createdAt)}</span>
@@ -294,11 +315,11 @@ export function MemoryPanel() {
           <ActionIcon data-testid="mem-delete" icon={Trash2} size="small" title="删除此记忆" />
         </Popconfirm>
       </Flexbox>
-      <div style={{ marginBlockStart: 8, fontSize: 12, color: muted }}>版本历史</div>
+      <div className={styles.sectionTitle}>版本历史</div>
       <MemoryHistory memoryId={selected.id} />
     </Flexbox>
   ) : (
-    <div style={{ color: muted, fontSize: 13 }}>选择左侧记忆查看详情</div>
+    <div className={styles.placeholder}>选择左侧记忆查看详情</div>
   );
 
   const editorModal = (
@@ -348,7 +369,11 @@ export function MemoryPanel() {
           testId="memory-panel"
           header={header}
           list={<MemoryHistory refreshToken={historyRefresh} />}
-          detail={<div style={{ color: muted, fontSize: 13 }}>全量变更时间线；点条目右侧可回滚，或用上方「清空历史」按当前筛选清空</div>}
+          detail={
+            <div className={styles.placeholder}>
+              全量变更时间线；点条目右侧可回滚，或用上方「清空历史」按当前筛选清空
+            </div>
+          }
         />
         {editorModal}
       </>

@@ -55,8 +55,13 @@ if (existsSync(piPkgDist)) {
     console.log('Copied built-in themes from modes/interactive/theme.');
   }
 
+  // package.json / README / CHANGELOG 在包根（不在 dist/）；旧逻辑从 dist/ 复制会静默跳过，
+  // 导致 binaries/package.json 长期陈旧、运行时 VERSION 读出错误版本。改为优先包根、回退 dist。
+  const piPkgRoot = resolve(piPkgDist, '..');
   for (const file of ['package.json', 'README.md', 'CHANGELOG.md', 'photon_rs_bg.wasm']) {
-    const from = join(piPkgDist, file);
+    const fromRoot = join(piPkgRoot, file);
+    const fromDist = join(piPkgDist, file);
+    const from = existsSync(fromRoot) ? fromRoot : fromDist;
     if (existsSync(from)) copyFileSync(from, join(binDir, file));
   }
 } else {

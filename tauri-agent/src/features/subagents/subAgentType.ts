@@ -55,3 +55,15 @@ export function accessLabel(info: SubAgentTypeInfo): string {
   if (info.access === 'readonly') return '只读';
   return info.restricted ? '受限写' : '工作';
 }
+
+/**
+ * 按子代理身份生成稳定颜色（HSL 色相）：并行 / 历史多个子代理时一眼区分谁是谁。
+ * 同一 seed（如相同角色 task）恒为同色；纯前端、无需后端存储。空 seed 回退中性灰。
+ */
+export function subAgentColor(seed: string | null | undefined): string {
+  const s = (seed ?? '').trim();
+  if (!s) return 'hsl(0 0% 60%)';
+  let h = 0;
+  for (let i = 0; i < s.length; i += 1) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0;
+  return `hsl(${h % 360} 62% 52%)`;
+}

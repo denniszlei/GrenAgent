@@ -1,9 +1,11 @@
-import { memo, createElement } from 'react';
+import { memo, createElement, useMemo, type ReactNode } from 'react';
 import { ActionIcon, Flexbox } from '@lobehub/ui';
 import { App, Dropdown, type MenuProps } from 'antd';
 import { MoreHorizontal } from 'lucide-react';
 import { buildActionItem } from './slots';
-import type { MessageActionContext, MessageActionSlot } from './types';
+import type { MessageActionContext, MessageActionSlot, Notify } from './types';
+import { useOptionalAgentStoreContext } from '../../../stores/AgentStoreContext';
+import type { AgentStoreApi } from '../../../stores/agent';
 
 interface MessageActionBarProps {
   ctx: MessageActionContext;
@@ -13,14 +15,13 @@ interface MessageActionBarProps {
   menu?: MessageActionSlot[];
 }
 
-/** 通用消息操作栏：声明式 slot → ActionIcon 条 + Dropdown 溢出菜单。 */
-export const MessageActionBar = memo<MessageActionBarProps>(({ ctx, bar, menu }) => {
-  const { message } = App.useApp();
-  const notify = {
-    success: (c: string) => message.success(c),
-    error: (c: string) => message.error(c),
-  };
-
+/** 声明式 slot → ActionIcon 条 + Dropdown 溢出菜单（纯渲染，ctx 已就绪）。 */
+function renderActions(
+  ctx: MessageActionContext,
+  bar: MessageActionSlot[],
+  menu: MessageActionSlot[] | undefined,
+  notify: Notify,
+): ReactNode {
   const menuItems: MenuProps['items'] = menu?.map((slot, i) => {
     if (slot === 'divider') return { type: 'divider', key: `divider-${i}` };
     const it = buildActionItem(slot, ctx, notify);
@@ -60,6 +61,69 @@ export const MessageActionBar = memo<MessageActionBarProps>(({ ctx, bar, menu })
       )}
     </Flexbox>
   );
+}
+
+function useNotify(): Notify {
+  const { message } = App.useApp();
+  return useMemo(
+    () => ({ success: (c: string) => message.success(c), error: (c: string) => message.error(c) }),
+    [message],
+  );
+}
+
+/** 有 store 上下文 + 消息带 timestamp：订阅 excluded 灰显态，注入移出/恢复/回退回调。 */
+function ContextBar({ ctx, bar, menu, store }: MessageActionBarProps & { store: AgentStoreApi }) {
+  const notify = useNotify();
+  const ts = ctx.timestamp as number; // 外层已保证 != null
+  const excluded = store.useStore((s) => s.excluded.has(ts));
+  const enriched = useMemo<MessageActionContext>(
+    () => ({
+      ...ctx,
+      excluded,
+      onExclude: async (t) => {
+        try {
+          await store.excludeMessage(t);
+        } catch {
+          notify.error('移出上下文失败');
+        }
+      },
+      onRestore: async (t) => {
+        try {
+          await store.restoreMessage(t);
+        } catch {
+          notify.error('恢复失败');
+        }
+      },
+      onRewind: async (t) => {
+        try {
+          await store.rewindTo(t);
+          notify.success('已回退到此');
+        } catch {
+          notify.error('回退失败');
+        }
+      },
+    }),
+    [ctx, excluded, store, notify],
+  );
+  return renderActions(enriched, bar, menu, notify);
+}
+
+/** 无 store 上下文（如子代理对话）或消息无 timestamp：仅渲染基础动作（copy 等）。 */
+function PlainBar({ ctx, bar, menu }: MessageActionBarProps) {
+  const notify = useNotify();
+  return renderActions(ctx, bar, menu, notify);
+}
+
+/**
+ * 通用消息操作栏。主对话（有 AgentStoreProvider）且消息带 timestamp 时启用上下文控制动作；
+ * 其余场景降级为基础动作，保证子代理对话等无 store 环境也能安全渲染。
+ */
+export const MessageActionBar = memo<MessageActionBarProps>((props) => {
+  const storeCtx = useOptionalAgentStoreContext();
+  if (storeCtx && props.ctx.timestamp != null) {
+    return <ContextBar {...props} store={storeCtx.store} />;
+  }
+  return <PlainBar {...props} />;
 });
 
 MessageActionBar.displayName = 'MessageActionBar';

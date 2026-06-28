@@ -55,9 +55,9 @@ export function ChatMessageItems({ messages, lazy: lazyRender = false }: ChatMes
   const renderBody = (msg: DisplayMessage): ReactNode => {
     switch (msg.kind) {
       case 'user':
-        return <UserMessage key={msg.id} text={msg.text} images={msg.images} />;
+        return <UserMessage key={msg.id} text={msg.text} images={msg.images} timestamp={msg.timestamp} />;
       case 'turn':
-        return <TurnTimeline key={msg.id} segments={msg.segments} />;
+        return <TurnTimeline key={msg.id} segments={msg.segments} timestamp={msg.timestamp} />;
       case 'tool':
         if (msg.toolName === 'spawn_agent') {
           const numbered = unitsByMessage.get(msg.id) ?? [];
