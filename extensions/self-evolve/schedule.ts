@@ -17,11 +17,18 @@ export interface ScheduleInput {
   lastRunMs: number | undefined;
   /** 项目最早会话的 epoch ms（年龄门槛）；undefined = 无会话。 */
   earliestSessionMs: number | undefined;
+  /** 项目最近会话活动的 epoch ms（活动闸）；undefined = 无会话。 */
+  latestSessionMs: number | undefined;
   now: number;
   lastSpawnMs: number;
 }
 
-/** 是否应触发一次自进化（对齐 MiMo shouldAutoRun 语义）。 */
+/**
+ * 是否应触发一次自进化（对齐 MiMo shouldAutoRun 语义）。
+ *
+ * 已运行过的项目除「间隔到期」外，还要求「上次运行后确有新会话活动」（latestSession > lastRun）：
+ * 避免仅因日历时间流逝、而期间毫无新对话就空跑一次 dream/distill。
+ */
 export function shouldRun(i: ScheduleInput): boolean {
   if (!i.enabled) return false;
   if (i.now - i.lastSpawnMs < MIN_SPAWN_GAP_MS) return false;
@@ -30,7 +37,11 @@ export function shouldRun(i: ScheduleInput): boolean {
     if (i.earliestSessionMs === undefined) return false;
     return i.now - i.earliestSessionMs >= i.intervalMs;
   }
-  return i.now - i.lastRunMs >= i.intervalMs;
+  // 间隔未到 → 不跑。
+  if (i.now - i.lastRunMs < i.intervalMs) return false;
+  // 间隔已到，但上次运行后无任何新会话活动 → 不跑（双保险）。
+  if (i.latestSessionMs === undefined) return false;
+  return i.latestSessionMs > i.lastRunMs;
 }
 
 export function readMarker(path: string): number | undefined {

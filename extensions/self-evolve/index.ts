@@ -1,6 +1,7 @@
 // extensions/self-evolve: 自进化（dream 知识固化 + distill 行为提炼）。
-// session_start 间隔自动触发 registry 子代理；/dream /distill 手动触发；
-// before_agent_start 注入 项目+全局 MEMORY.md。子进程置 SELF_EVOLVE_CHILD 防递归。
+// before_agent_start 间隔自动触发 registry 子代理（仅在用户真正开始对话的首个 turn 判一次，
+// 不挂 session_start，避免桌面端启动 warm 会话时空触发）；/dream /distill 手动触发；
+// before_agent_start 同时注入 项目+全局 MEMORY.md。子进程置 SELF_EVOLVE_CHILD 防递归。
 import { join } from "node:path";
 import { getAgentDir, SessionManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getConfig } from "../_shared/runtime-config.js";
@@ -29,15 +30,18 @@ function sessionModifiedMs(info: { modified?: Date | string | number }): number 
   return Number.isFinite(t) ? t : undefined;
 }
 
-async function earliestSessionMs(cwd: string): Promise<number | undefined> {
+/** 一次扫描取项目会话的最早(年龄门槛)与最近(活动闸)修改时间。 */
+async function sessionAgeBounds(cwd: string): Promise<{ earliest?: number; latest?: number }> {
   const infos = await SessionManager.list(cwd).catch(() => []);
-  let min: number | undefined;
+  let earliest: number | undefined;
+  let latest: number | undefined;
   for (const i of infos) {
     const t = sessionModifiedMs(i);
     if (t === undefined) continue;
-    min = min === undefined ? t : Math.min(min, t);
+    earliest = earliest === undefined ? t : Math.min(earliest, t);
+    latest = latest === undefined ? t : Math.max(latest, t);
   }
-  return min;
+  return { earliest, latest };
 }
 
 function displayLabel(agent: "dream" | "distill", source: "manual" | "auto"): string {
@@ -85,20 +89,37 @@ function runEvolve(pi: ExtensionAPI, agent: "dream" | "distill", source: "manual
 export default function (pi: ExtensionAPI) {
   let lastDreamSpawn = 0;
   let lastDistillSpawn = 0;
+  // 每会话只判一次（在该会话的首个 turn）：对齐 MiMo `step === 1` 语义。
+  const checkedSessions = new Set<string>();
 
   seedPersonas();
 
-  pi.on("session_start", async (_event, ctx) => {
+  // 自动 dream/distill 调度：触发点从「会话创建(session_start)」改到「用户真正开始一次对话
+  // (before_agent_start)」。桌面端启动会 warm/open 顶层会话 → 旧的 session_start 钩子会在
+  // 「还没对话」时误触发；before_agent_start 仅在有真实 turn 时触发，正对应 MiMo 的 step===1。
+  const maybeAutoEvolve = async (ctx: ExtensionContext) => {
     if (isChild() || !auto()) return;
+    // 同步去重：在首个 await 前完成，避免同会话连续 turn 重复进入。
+    let sid: string | undefined;
+    try {
+      sid = ctx.sessionManager.getSessionId();
+    } catch {
+      sid = undefined;
+    }
+    if (sid) {
+      if (checkedSessions.has(sid)) return;
+      checkedSessions.add(sid);
+    }
     try {
       const now = Date.now();
-      const earliest = await earliestSessionMs(ctx.cwd);
+      const { earliest, latest } = await sessionAgeBounds(ctx.cwd);
       if (
         shouldRun({
           enabled: true,
           intervalMs: daysToMs(dreamDays()),
           lastRunMs: readMarker(dreamMarker(ctx.cwd)),
           earliestSessionMs: earliest,
+          latestSessionMs: latest,
           now,
           lastSpawnMs: lastDreamSpawn,
         })
@@ -113,6 +134,7 @@ export default function (pi: ExtensionAPI) {
           intervalMs: daysToMs(distillDays()),
           lastRunMs: readMarker(distillMarker(ctx.cwd)),
           earliestSessionMs: earliest,
+          latestSessionMs: latest,
           now,
           lastSpawnMs: lastDistillSpawn,
         })
@@ -122,11 +144,14 @@ export default function (pi: ExtensionAPI) {
         runEvolve(pi, "distill", "auto", ctx);
       }
     } catch {
-      /* never block session_start */
+      /* never block the turn */
     }
-  });
+  };
 
   pi.on("before_agent_start", async (_event, ctx) => {
+    // 调度自动进化（fire-and-forget，不阻塞注入与本轮）。
+    void maybeAutoEvolve(ctx);
+
     // 子代理（dream/distill 自身）不注入 MEMORY 全文：persona 已含主动读 MEMORY 步骤，
     // 再注入既冗余又占用子代理 context（对齐 MiMo「按需查」精神）。主 agent 仍照常注入。
     if (isChild() || !memInject()) return undefined;

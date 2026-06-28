@@ -9,6 +9,7 @@ const base = {
   intervalMs: daysToMs(7),
   lastRunMs: undefined as number | undefined,
   earliestSessionMs: undefined as number | undefined,
+  latestSessionMs: undefined as number | undefined,
   now: 1_000_000_000_000,
   lastSpawnMs: 0,
 };
@@ -32,11 +33,38 @@ describe("shouldRun", () => {
   it("last run too recent → false", () => {
     expect(shouldRun({ ...base, lastRunMs: base.now - daysToMs(3) })).toBe(false);
   });
-  it("last run older than interval → true", () => {
-    expect(shouldRun({ ...base, lastRunMs: base.now - daysToMs(8) })).toBe(true);
+  it("interval met + new activity since last run → true", () => {
+    expect(
+      shouldRun({
+        ...base,
+        lastRunMs: base.now - daysToMs(8),
+        latestSessionMs: base.now - daysToMs(1),
+      }),
+    ).toBe(true);
   });
-  it("interval 0 → always true (past debounce)", () => {
-    expect(shouldRun({ ...base, intervalMs: 0, lastRunMs: base.now })).toBe(true);
+  it("interval met but no new activity since last run → false", () => {
+    expect(
+      shouldRun({
+        ...base,
+        lastRunMs: base.now - daysToMs(8),
+        latestSessionMs: base.now - daysToMs(9),
+      }),
+    ).toBe(false);
+  });
+  it("interval met but no sessions (latest undefined) → false", () => {
+    expect(
+      shouldRun({ ...base, lastRunMs: base.now - daysToMs(8), latestSessionMs: undefined }),
+    ).toBe(false);
+  });
+  it("interval 0 + new activity → true (past debounce)", () => {
+    expect(
+      shouldRun({
+        ...base,
+        intervalMs: 0,
+        lastRunMs: base.now - 1000,
+        latestSessionMs: base.now,
+      }),
+    ).toBe(true);
   });
 });
 
