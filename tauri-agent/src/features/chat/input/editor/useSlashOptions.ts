@@ -5,7 +5,7 @@ import { useAgentStoreContext } from '../../../../stores/AgentStoreContext';
 import { useSessionStore } from '../../../../store/session';
 import { isUnder } from '../../../../lib/pathUtils';
 import { resolveCommandIcon } from '../commandIcons';
-import { getFrontendCommands } from '../commandUtils';
+import { commandMatchesQuery, getFrontendCommands } from '../commandUtils';
 import type { CommandApiSource, PiCommand } from '../commandTypes';
 import { loadCommands } from './commandLoader';
 import { INSERT_CHAT_TAG_COMMAND } from './ChatTag/command';
@@ -39,11 +39,6 @@ function groupKey(c: PiCommand): GroupKey {
   return c.source === 'frontend' ? 'frontend' : (c.apiSource ?? 'unknown');
 }
 
-function matchesQuery(c: PiCommand, q: string): boolean {
-  if (!q) return true;
-  return `${c.name} ${c.description ?? ''}`.toLowerCase().includes(q);
-}
-
 /** 描述过长会把菜单撑宽，截断展示（搜索仍用完整文本）。 */
 function clampDesc(s: string | undefined): string | undefined {
   if (!s) return undefined;
@@ -52,10 +47,9 @@ function clampDesc(s: string | undefined): string | undefined {
 
 /** 过滤 + 按类目分组（每组前插带标题的分隔项）+ 补功能图标/描述，喂给编辑器 slash 菜单渲染。 */
 function toOptions(commands: PiCommand[], query: string): ISlashOption[] {
-  const q = query.trim().toLowerCase();
   const buckets = new Map<GroupKey, PiCommand[]>();
   for (const c of commands) {
-    if (!matchesQuery(c, q)) continue;
+    if (!commandMatchesQuery(c, query)) continue;
     const key = groupKey(c);
     const bucket = buckets.get(key) ?? [];
     bucket.push(c);

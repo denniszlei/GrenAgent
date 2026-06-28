@@ -1,4 +1,4 @@
-import { AudioLines, BookOpen, Brain, Cpu, Globe, Image, Palette, Settings2, ShieldCheck } from 'lucide-react';
+import { AudioLines, BookOpen, Bot, Brain, Cpu, Globe, Image, Palette, Settings2, ShieldCheck } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 export type FieldType = 'text' | 'password' | 'number' | 'boolean' | 'select' | 'model' | 'capability';
@@ -26,6 +26,8 @@ export interface SettingField {
   modelKey?: string;
   /** capability 类型：能力种类，决定模型建议清单 */
   capability?: 'image' | 'embedding' | 'tts';
+  /** 条件显示：仅当同页另一字段(key)的当前值在 equals 内时才渲染（如模型选择仅在策略=选定时显示）。 */
+  showWhen?: { key: string; equals: string[] };
 }
 
 export interface SettingSection {
@@ -194,7 +196,7 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
   },
   {
     id: 'web',
-    title: '网页 / 搜索 / 子代理',
+    title: '网页 / 搜索',
     group: '联网',
     icon: Globe,
     sections: [
@@ -226,10 +228,36 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
           { key: 'BRAVE_API_KEY', label: 'Brave Search API Key', type: 'password' },
         ],
       },
+    ],
+  },
+  {
+    id: 'subagent',
+    title: '子代理',
+    group: '能力',
+    icon: Bot,
+    sections: [
       {
-        title: '子代理',
+        title: '并发与上限',
         fields: [
-          { key: 'SUBAGENT_TIMEOUT_MS', label: '子代理超时(ms)', type: 'number', placeholder: '120000' },
+          {
+            key: 'SUBAGENT_MAX_PER_SESSION',
+            label: '单会话最大子代理数',
+            type: 'number',
+            placeholder: '6',
+            description: '一次对话累计可启动的子代理上限；默认 6，设 0＝不限。达到后主代理再 spawn 会被拒绝，可开新对话重置。',
+          },
+        ],
+      },
+      {
+        title: '超时与回收',
+        fields: [
+          {
+            key: 'SUBAGENT_TIMEOUT_MS',
+            label: '子代理空闲超时(ms)',
+            type: 'number',
+            placeholder: '300000',
+            description: '连续无输出超过此值才判卡死并终止；每段输出都会重置计时',
+          },
           {
             key: 'SUBAGENT_STUCK_MS',
             label: '子代理卡死阈值(ms)',
@@ -237,12 +265,30 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
             placeholder: '300000',
             description: '后台子代理无活动超过此时长判为卡死并自动终止',
           },
+        ],
+      },
+      {
+        title: '模型策略',
+        fields: [
+          {
+            key: 'SUBAGENT_MODE',
+            label: '子代理模型策略',
+            type: 'select',
+            placeholder: '继承父模型（默认）',
+            description: '禁用子代理＝主代理不再 spawn；继承父模型＝子代理用主对话模型；选定模型＝用下方指定',
+            options: [
+              { value: 'inherit', label: '继承父模型' },
+              { value: 'custom', label: '选定模型' },
+              { value: 'disabled', label: '禁用子代理' },
+            ],
+          },
           {
             key: 'SUBAGENT_MODEL',
             label: '子代理模型',
             type: 'model',
             placeholder: '如 deepseek/deepseek-chat',
-            description: '留空＝继承主代理默认',
+            description: '策略＝选定模型时生效，作为子代理默认模型（spawn 调用里显式指定的优先）',
+            showWhen: { key: 'SUBAGENT_MODE', equals: ['custom', ''] },
           },
           {
             key: 'SUBAGENT_MODEL_CHEAP',
@@ -250,6 +296,7 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
             type: 'model',
             placeholder: '如 deepseek/deepseek-chat',
             description: '能力档案 model:"cheap" 解析到此；留空回退「子代理模型」',
+            showWhen: { key: 'SUBAGENT_MODE', equals: ['custom', ''] },
           },
           {
             key: 'SUBAGENT_MODEL_STRONG',
@@ -257,6 +304,7 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
             type: 'model',
             placeholder: '如 openai/gpt-4o',
             description: '能力档案 model:"strong" 解析到此；留空回退「子代理模型」',
+            showWhen: { key: 'SUBAGENT_MODE', equals: ['custom', ''] },
           },
         ],
       },
@@ -295,6 +343,3 @@ export const GATEWAY_FIELDS: SettingField[] = [
   { key: 'IM_GATEWAY_PORT', label: '网关端口', type: 'number', placeholder: '8765', effect: 'restart' },
   { key: 'IM_GATEWAY_TOKEN', label: '网关 Token（可选）', type: 'password', effect: 'restart' },
 ];
-
-/** 合并列表，供旧调用方复用同一存储。 */
-export const CONNECTION_FIELDS: SettingField[] = [...WECHAT_FIELDS, ...GATEWAY_FIELDS];

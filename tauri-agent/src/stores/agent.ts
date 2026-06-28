@@ -4,10 +4,11 @@ import {
   initialAgentState,
   addUserMessage,
   messagesFromAgent,
+  excludedFromAgent,
   type AgentState,
   type UserImage,
 } from './agentReducer';
-import { onPiEvent, onPiExit, type AgentEvent, type AgentMessage } from '../lib/pi';
+import { pi, onPiEvent, onPiExit, type AgentEvent, type AgentMessage } from '../lib/pi';
 import { getThinkingDuration, saveThinkingDuration } from '../lib/thinkingDurations';
 import { getCachedSession, setCachedSession, sessionSignature } from '../lib/sessionMessageCache';
 
@@ -28,6 +29,12 @@ export interface AgentStoreApi {
   setActive: (active: boolean) => void;
   pushUserMessage: (text: string, images?: UserImage[], steering?: boolean) => void;
   loadMessages: (msgs: AgentMessage[], options?: LoadMessagesOptions) => void;
+  /** 把某条消息（按 timestamp）移出 LLM 上下文：乐观灰显 + 调后端命令；失败回滚。 */
+  excludeMessage: (timestamp: number) => Promise<void>;
+  /** 恢复被移出上下文的消息：乐观取消灰显 + 调后端命令；失败回滚。 */
+  restoreMessage: (timestamp: number) => Promise<void>;
+  /** 回退到某条消息：后端按 timestamp 映射 entry id 后 fork 出新分支并切换，随后重载消息。 */
+  rewindTo: (timestamp: number) => Promise<void>;
   reset: () => void;
   hasLiveActivity: () => boolean;
   /**
@@ -161,7 +168,50 @@ export function createAgentStore(workspace: string): AgentStoreApi {
     currentSig = sig;
     if (sessionPath != null) setCachedSession(sessionPath, processed, sig);
     clearQueue();
-    setFullState({ ...initialAgentState(), messages: processed });
+    // 从会话树重建上下文排除集（best-effort），切换 / 重载会话后恢复灰显。
+    setFullState({ ...initialAgentState(), messages: processed, excluded: excludedFromAgent(msgs) });
+  };
+
+  // excluded 是 Set：每次以新 Set 替换，保证 zustand 浅比较能触发订阅者重渲染。
+  const setExcluded = (mutate: (s: Set<number>) => void) => {
+    const next = new Set(useStore.getState().excluded);
+    mutate(next);
+    useStore.setState({ excluded: next });
+  };
+
+  const excludeMessage = async (timestamp: number) => {
+    setExcluded((s) => {
+      s.add(timestamp);
+    });
+    try {
+      await pi.excludeEntry(workspace, timestamp);
+    } catch (e) {
+      setExcluded((s) => {
+        s.delete(timestamp);
+      });
+      throw e;
+    }
+  };
+
+  const restoreMessage = async (timestamp: number) => {
+    setExcluded((s) => {
+      s.delete(timestamp);
+    });
+    try {
+      await pi.restoreEntry(workspace, timestamp);
+    } catch (e) {
+      setExcluded((s) => {
+        s.add(timestamp);
+      });
+      throw e;
+    }
+  };
+
+  const rewindTo = async (timestamp: number) => {
+    await pi.rewindTo(workspace, timestamp);
+    // fork 后 pi 会话指针已移到新分支：重载消息以反映回退结果（保留原路径，符合树模型）。
+    const res = await pi.getMessages(workspace);
+    loadMessages(res.messages, { force: true });
   };
 
   const reset = () => {
@@ -180,6 +230,9 @@ export function createAgentStore(workspace: string): AgentStoreApi {
     },
     pushUserMessage,
     loadMessages,
+    excludeMessage,
+    restoreMessage,
+    rewindTo,
     reset,
     hasLiveActivity: () => liveActivity,
     getLoadedSessionPath: () => loadedSessionPath,

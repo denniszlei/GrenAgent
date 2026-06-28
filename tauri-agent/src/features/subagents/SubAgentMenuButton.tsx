@@ -1,16 +1,35 @@
 import { ActionIcon, Icon } from '@lobehub/ui';
 import { Popover } from 'antd';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { Bot } from 'lucide-react';
+import { Bot, Eraser } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { pi, type SubAgentItem } from '../../lib/pi';
 import { useOptionalAgentStoreContext } from '../../stores/AgentStoreContext';
 import { useDockStore } from '../../stores/dockStore';
 import { useLayoutStore } from '../../stores/layoutStore';
-import { subAgentId } from '../panels/subagentUtils';
+import { mapSubAgentStatus, subAgentId } from '../panels/subagentUtils';
 import { SubAgentCard } from './SubAgentCard';
 
 const POLL_MS = 2500;
+// 终态（完成/失败/取消）结束这么久后自动从列表淡出（总览面板比输入框托盘给更久的回看窗口）。
+const FADE_MS = 300_000;
+// 折叠：默认最多显示这么多个最近终态，更旧的收进「显示全部」。
+const RECENT_TERMINAL = 4;
+
+function isTerminalStatus(status: string): boolean {
+  return status === 'done' || status === 'error' || status === 'cancelled';
+}
+
+// 「清除已结束」：按 workspace 在 localStorage 记一个 cutoff 时刻，更新时刻早于它的终态一律隐藏。
+// 纯前端、持久（重启仍生效），不删 registry 行（其他工具/CLI 仍可访问历史）。
+function clearCutoffKey(ws: string): string {
+  return `subagent-clear-cutoff:${ws}`;
+}
+function readClearCutoff(ws: string): number {
+  if (!ws) return 0;
+  const v = Number(localStorage.getItem(clearCutoffKey(ws)) ?? '0');
+  return Number.isFinite(v) ? v : 0;
+}
 
 const styles = createStaticStyles(({ css }) => ({
   panel: css`
@@ -28,6 +47,12 @@ const styles = createStaticStyles(({ css }) => ({
     font-weight: 600;
     color: ${cssVar.colorText};
     border-block-end: 1px solid ${cssVar.colorBorderSecondary};
+  `,
+  headerTitle: css`
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 8px;
   `,
   count: css`
     font-weight: 400;
@@ -47,14 +72,21 @@ const styles = createStaticStyles(({ css }) => ({
     color: ${cssVar.colorTextTertiary};
     text-align: center;
   `,
-}));
+  moreBtn: css`
+    padding: 6px;
+    border: 1px dashed ${cssVar.colorBorderSecondary};
+    border-radius: ${cssVar.borderRadius};
+    font-size: 12px;
+    color: ${cssVar.colorTextTertiary};
+    text-align: center;
+    cursor: pointer;
 
-/** registry 状态 → SubAgentConversation 的三态。 */
-function mapStatus(status: string): 'running' | 'done' | 'error' {
-  if (status === 'running') return 'running';
-  if (status === 'error' || status === 'cancelled') return 'error';
-  return 'done';
-}
+    &:hover {
+      color: ${cssVar.colorText};
+      border-color: ${cssVar.colorBorder};
+    }
+  `,
+}));
 
 /** 列表签名：仅在子代理集合 / 状态 / 活跃时间变化时才触发渲染。 */
 function signature(items: SubAgentItem[]): string {
@@ -72,6 +104,8 @@ export function SubAgentMenuButton() {
   const store = ctx?.store ?? null;
   const [items, setItems] = useState<SubAgentItem[]>([]);
   const [open, setOpen] = useState(false);
+  const [clearCutoff, setClearCutoff] = useState(0);
+  const [showAll, setShowAll] = useState(false);
   const sigRef = useRef('');
 
   useEffect(() => {
@@ -102,6 +136,12 @@ export function SubAgentMenuButton() {
     };
   }, [workspace]);
 
+  // workspace 切换时重读该工作区的「清除」cutoff，并重置展开态。
+  useEffect(() => {
+    setClearCutoff(readClearCutoff(workspace));
+    setShowAll(false);
+  }, [workspace]);
+
   const openAgent = useCallback(
     (item: SubAgentItem) => {
       setOpen(false);
@@ -120,7 +160,7 @@ export function SubAgentMenuButton() {
         agentId: item.id,
         task: item.task,
         output: item.output ?? '',
-        status: mapStatus(item.status),
+        status: mapSubAgentStatus(item.status),
       });
     },
     [store],
@@ -136,26 +176,55 @@ export function SubAgentMenuButton() {
 
   const runningCount = items.filter((i) => i.status === 'running').length;
 
+  const now = Date.now();
+  // 可见性：运行中恒显示；终态需未被「清除」(updatedAt > cutoff) 且未超过淡出窗口。
+  const visible = items.filter((item) => {
+    if (item.status === 'running') return true;
+    if (!isTerminalStatus(item.status)) return true;
+    if (item.updatedAt <= clearCutoff) return false;
+    return now - item.updatedAt <= FADE_MS;
+  });
+  const runningItems = visible.filter((i) => i.status === 'running');
+  const terminalItems = visible.filter((i) => i.status !== 'running');
+  const shownTerminal = showAll ? terminalItems : terminalItems.slice(0, RECENT_TERMINAL);
+  const hiddenCount = terminalItems.length - shownTerminal.length;
+  const hasClearable = items.some((i) => isTerminalStatus(i.status) && i.updatedAt > clearCutoff);
+
+  const clearFinished = () => {
+    const ts = Date.now();
+    if (workspace) localStorage.setItem(clearCutoffKey(workspace), String(ts));
+    setClearCutoff(ts);
+    setShowAll(false);
+  };
+
+  const renderCard = (item: SubAgentItem) => (
+    <SubAgentCard key={item.id} item={item} onOpen={() => openAgent(item)} onStop={() => stopAgent(item)} />
+  );
+
   const content = (
     <div className={styles.panel}>
       <div className={styles.header}>
-        <Icon icon={Bot} size={16} />
-        <span>
-          子代理 <span className={styles.count}>· {items.length}</span>
+        <span className={styles.headerTitle}>
+          <Icon icon={Bot} size={16} />
+          <span>
+            子代理 <span className={styles.count}>· {visible.length}</span>
+          </span>
         </span>
+        {hasClearable ? (
+          <ActionIcon icon={Eraser} size="small" title="清除已结束" onClick={clearFinished} />
+        ) : null}
       </div>
-      {items.length === 0 ? (
+      {visible.length === 0 ? (
         <div className={styles.empty}>暂无子代理。用 spawn_agent 委派任务后会在这里出现。</div>
       ) : (
         <div className={styles.list}>
-          {items.map((item) => (
-            <SubAgentCard
-              key={item.id}
-              item={item}
-              onOpen={() => openAgent(item)}
-              onStop={() => stopAgent(item)}
-            />
-          ))}
+          {runningItems.map(renderCard)}
+          {shownTerminal.map(renderCard)}
+          {hiddenCount > 0 ? (
+            <div className={styles.moreBtn} onClick={() => setShowAll(true)}>
+              显示全部（还有 {hiddenCount} 个已结束）
+            </div>
+          ) : null}
         </div>
       )}
     </div>
@@ -175,7 +244,7 @@ export function SubAgentMenuButton() {
         icon={Bot}
         size="small"
         active={open}
-        title={`子代理（${runningCount} 运行中 / 共 ${items.length}）`}
+        title={`子代理（${runningCount} 运行中 / 共 ${visible.length}）`}
         data-testid="subagent-menu-button"
       />
     </Popover>

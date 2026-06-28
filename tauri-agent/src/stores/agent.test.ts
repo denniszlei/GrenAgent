@@ -1,8 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// 捕获事件订阅 handler，测试中手动注入 pi 事件。
-const eventHandlers: Array<(e: { workspace: string; event: unknown }) => void> = [];
+// 捕获事件订阅 handler + pi 命令 mock。用 vi.hoisted 确保在 vi.mock 工厂（被提升到文件顶部）执行前已初始化。
+const { eventHandlers, piMock } = vi.hoisted(() => ({
+  eventHandlers: [] as Array<(e: { workspace: string; event: unknown }) => void>,
+  piMock: {
+    excludeEntry: vi.fn((_ws: string, _ts: number) => Promise.resolve()),
+    restoreEntry: vi.fn((_ws: string, _ts: number) => Promise.resolve()),
+    rewindTo: vi.fn((_ws: string, _ts: number) => Promise.resolve()),
+    getMessages: vi.fn(
+      (_ws: string): Promise<{ messages: unknown[] }> => Promise.resolve({ messages: [] }),
+    ),
+  },
+}));
 vi.mock('../lib/pi', () => ({
+  pi: piMock,
   onPiEvent: (h: (e: { workspace: string; event: unknown }) => void) => {
     eventHandlers.push(h);
     return Promise.resolve(() => {});
@@ -24,6 +35,10 @@ describe('createAgentStore', () => {
   beforeEach(() => {
     eventHandlers.length = 0;
     rafCallbacks = [];
+    piMock.excludeEntry.mockReset().mockResolvedValue(undefined);
+    piMock.restoreEntry.mockReset().mockResolvedValue(undefined);
+    piMock.rewindTo.mockReset().mockResolvedValue(undefined);
+    piMock.getMessages.mockReset().mockResolvedValue({ messages: [] });
     clearThinkingDurationsForTest();
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       rafCallbacks.push(cb);
@@ -211,5 +226,58 @@ describe('createAgentStore', () => {
     // setTimeout 到点后应用
     vi.advanceTimersByTime(80);
     expect(store.useStore.getState().isStreaming).toBe(true);
+  });
+
+  describe('上下文控制（移出 / 恢复 / 回退 / 重建）', () => {
+    it('excludeMessage 乐观加入 excluded 并调后端命令', async () => {
+      store = createAgentStore('.');
+      await store.excludeMessage(123);
+      expect(store.useStore.getState().excluded.has(123)).toBe(true);
+      expect(piMock.excludeEntry).toHaveBeenCalledWith('.', 123);
+    });
+
+    it('excludeMessage 后端失败时回滚 excluded 并抛出', async () => {
+      store = createAgentStore('.');
+      piMock.excludeEntry.mockRejectedValueOnce(new Error('boom'));
+      await expect(store.excludeMessage(7)).rejects.toThrow('boom');
+      expect(store.useStore.getState().excluded.has(7)).toBe(false);
+    });
+
+    it('restoreMessage 乐观移除 excluded 并调后端命令', async () => {
+      store = createAgentStore('.');
+      await store.excludeMessage(5);
+      await store.restoreMessage(5);
+      expect(store.useStore.getState().excluded.has(5)).toBe(false);
+      expect(piMock.restoreEntry).toHaveBeenCalledWith('.', 5);
+    });
+
+    it('rewindTo 调后端并按返回消息重载', async () => {
+      store = createAgentStore('.');
+      piMock.getMessages.mockResolvedValueOnce({
+        messages: [{ role: 'user', content: 'after rewind', timestamp: 1 }],
+      });
+      await store.rewindTo(999);
+      expect(piMock.rewindTo).toHaveBeenCalledWith('.', 999);
+      const msgs = store.useStore.getState().messages;
+      expect(msgs).toHaveLength(1);
+      expect(msgs[0].kind).toBe('user');
+    });
+
+    it('loadMessages 从 context_exclusion 条目重建 excluded（add 后 remove 抵消）', () => {
+      store = createAgentStore('.');
+      store.loadMessages(
+        [
+          { role: 'user', content: 'a', timestamp: 100 },
+          { role: 'user', content: 'b', timestamp: 200 },
+          { role: 'custom', customType: 'context_exclusion', data: { op: 'add', ts: 100 } },
+          { role: 'custom', customType: 'context_exclusion', data: { op: 'add', ts: 200 } },
+          { role: 'custom', customType: 'context_exclusion', data: { op: 'remove', ts: 100 } },
+        ] as never,
+        { force: true },
+      );
+      const excluded = store.useStore.getState().excluded;
+      expect(excluded.has(200)).toBe(true);
+      expect(excluded.has(100)).toBe(false);
+    });
   });
 });

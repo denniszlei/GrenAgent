@@ -20,6 +20,19 @@ const base = {
   rightPanelWidth: 320,
 };
 
+describe('persist merge (启动默认不打开右侧面板)', () => {
+  it('rehydrate 时强制 rightPanelOpen=false（即便上次存的是 true），但保留宽度等其它持久化字段', () => {
+    const merge = useLayoutStore.persist.getOptions().merge!;
+    const merged = merge(
+      { rightPanelOpen: true, rightPanelWidth: 500, sidebarOpen: false },
+      useLayoutStore.getState(),
+    ) as ReturnType<typeof useLayoutStore.getState>;
+    expect(merged.rightPanelOpen).toBe(false);
+    expect(merged.rightPanelWidth).toBe(500);
+    expect(merged.sidebarOpen).toBe(false);
+  });
+});
+
 describe('resolvePanelVisibility', () => {
   it('尚未量到宽度（<=0）时直接按意图，不折叠', () => {
     expect(resolvePanelVisibility({ ...base, availableWidth: 0 })).toEqual({

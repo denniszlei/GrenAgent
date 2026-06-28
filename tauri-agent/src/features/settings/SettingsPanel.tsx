@@ -182,18 +182,20 @@ export function SettingsPanel() {
                     <>
                       {sections.map((sec, i) => (
                         <SettingCard key={sec.title || i} title={sec.title || undefined}>
-                          {sec.fields.map((f) =>
-                            f.type === 'capability' ? (
-                              <CapabilityModelField key={f.key} field={f} values={values} setValue={setValue} />
-                            ) : (
-                              <SettingFieldInput
-                                key={f.key}
-                                field={f}
-                                value={values[f.key] ?? ''}
-                                onChange={(v) => setValue(f.key, v)}
-                              />
-                            ),
-                          )}
+                          {sec.fields
+                            .filter((f) => !f.showWhen || f.showWhen.equals.includes(values[f.showWhen.key] ?? ''))
+                            .map((f) =>
+                              f.type === 'capability' ? (
+                                <CapabilityModelField key={f.key} field={f} values={values} setValue={setValue} />
+                              ) : (
+                                <SettingFieldInput
+                                  key={f.key}
+                                  field={f}
+                                  value={values[f.key] ?? ''}
+                                  onChange={(v) => setValue(f.key, v)}
+                                />
+                              ),
+                            )}
                         </SettingCard>
                       ))}
                       {/* 沙箱是隔离执行的安全能力，归「安全」分类（原误放在 IM 连接面板）。 */}

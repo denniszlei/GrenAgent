@@ -29,8 +29,8 @@ export type TextSegment = {
 export type TimelineSegment = ThinkingSegment | TextSegment | ToolSegment;
 
 export type DisplayMessage =
-  | { kind: 'user'; id: string; text: string; images?: UserImage[]; steering?: boolean }
-  | { kind: 'turn'; id: string; segments: TimelineSegment[] }
+  | { kind: 'user'; id: string; text: string; images?: UserImage[]; steering?: boolean; timestamp?: number }
+  | { kind: 'turn'; id: string; segments: TimelineSegment[]; timestamp?: number }
   | { kind: 'tool'; id: string; toolCallId: string; toolName: string; args: unknown; result: unknown; status: 'running' | 'done' | 'error' }
   | { kind: 'notice'; id: string; customType: string; content: string };
 
@@ -42,11 +42,11 @@ export type DisplayMessage =
  */
 export function groupMessages(messages: ChatMessage[]): DisplayMessage[] {
   const out: DisplayMessage[] = [];
-  let pending: { id: string; segments: TimelineSegment[] } | null = null;
+  let pending: { id: string; segments: TimelineSegment[]; timestamp?: number } | null = null;
 
   const flush = () => {
     if (pending && pending.segments.length > 0) {
-      out.push({ kind: 'turn', id: pending.id, segments: pending.segments });
+      out.push({ kind: 'turn', id: pending.id, segments: pending.segments, timestamp: pending.timestamp });
     }
     pending = null;
   };
@@ -59,6 +59,10 @@ export function groupMessages(messages: ChatMessage[]): DisplayMessage[] {
     switch (msg.kind) {
       case 'assistant': {
         ensureTurn(msg.id);
+        // 整轮的回退/排除 key 取该轮首条 assistant 消息的 timestamp。
+        if (pending!.timestamp == null && msg.timestamp != null) {
+          pending!.timestamp = msg.timestamp;
+        }
         const thinking = msg.thinking.trim();
         const text = msg.text.trim();
         if (thinking) {

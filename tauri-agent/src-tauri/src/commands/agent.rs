@@ -66,6 +66,9 @@ fn apply_conversation_tool_policy(
     if is_conversation_workspace(cwd) {
         env.remove("MCP_SERVERS");
         env.insert("MCP_DISABLED".into(), "1".into());
+        // 真对话模式（SP-3）：项目无关对话加载精简扩展集——裁掉 lsp/dap/code-intel/diagnostics 等重代码
+        // 智能扩展，缩短冷启动、降低开销；安全闸（safety）仍保留。项目工作区不设此项，保持全量扩展。
+        env.insert("EXTENSIONS_PROFILE".into(), "chat".into());
     }
     env
 }
@@ -396,6 +399,100 @@ pub async fn agent_set_approval(
     .await
 }
 
+/// 把某条消息移出 LLM 上下文（删任意段）：经 prompt 通道发 `/ctx-exclude <ts>`，由 compaction-policy
+/// 扩展拦截执行（appendEntry 持久 + 更新排除集），不调用 LLM、不进对话。timestamp 为该消息毫秒时间戳。
+#[tauri::command]
+pub async fn agent_exclude_entry(
+    workspace: String,
+    timestamp: i64,
+    mgr: State<'_, Arc<PiManager>>,
+) -> Result<Value, String> {
+    send(
+        &mgr,
+        &workspace,
+        PiOutbound::Prompt {
+            id: None,
+            message: format!("/ctx-exclude {timestamp}"),
+            images: None,
+            streaming_behavior: None,
+        },
+    )
+    .await
+}
+
+/// 恢复被移出上下文的消息：经 prompt 通道发 `/ctx-restore <ts>`，同样由扩展拦截执行、不进对话。
+#[tauri::command]
+pub async fn agent_restore_entry(
+    workspace: String,
+    timestamp: i64,
+    mgr: State<'_, Arc<PiManager>>,
+) -> Result<Value, String> {
+    send(
+        &mgr,
+        &workspace,
+        PiOutbound::Prompt {
+            id: None,
+            message: format!("/ctx-restore {timestamp}"),
+            images: None,
+            streaming_behavior: None,
+        },
+    )
+    .await
+}
+
+/// 扫描会话 jsonl，返回内层 `message.timestamp == ts` 的 entry 的顶层 `id`（取最后匹配，规避同 ts 多分支）。
+/// 磁盘 entry 形如 `{type:"message", id, parentId, timestamp(ISO), message:{role, content, timestamp(ms)}}`，
+/// 删段 / 回退按内层毫秒 timestamp 关联（与 compaction-policy 扩展、前端口径一致）。
+fn find_entry_id_by_timestamp(session_file: &str, timestamp: i64) -> Result<Option<String>, String> {
+    use std::io::BufRead;
+    // 逐行流式读取，恒定内存（不把整个会话文件一次性读进内存）。仍需扫到末尾取最后匹配。
+    let file = std::fs::File::open(session_file).map_err(|e| format!("read session failed: {e}"))?;
+    let reader = std::io::BufReader::new(file);
+    let mut found: Option<String> = None;
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("read session failed: {e}"))?;
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(entry) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if entry.get("type").and_then(|v| v.as_str()) != Some("message") {
+            continue;
+        }
+        let ts = entry
+            .get("message")
+            .and_then(|m| m.get("timestamp"))
+            .and_then(|v| v.as_i64());
+        if ts == Some(timestamp) {
+            if let Some(id) = entry.get("id").and_then(|v| v.as_str()) {
+                found = Some(id.to_string());
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// 回退到此：把会话回退到某条消息（按毫秒 timestamp）。读当前会话文件把 timestamp 映射成 entry id，
+/// 再发 `Fork` 创建新分支并切换（保留原路径，符合树模型；不物理删盘）。
+/// 前端无法拿到顶层 entry id（RPC get_messages 只暴露内层 message），故在此用会话文件做映射。
+#[tauri::command]
+pub async fn agent_rewind_to(
+    workspace: String,
+    timestamp: i64,
+    mgr: State<'_, Arc<PiManager>>,
+) -> Result<Value, String> {
+    let state = send(&mgr, &workspace, PiOutbound::GetState { id: None }).await?;
+    let session_file = state
+        .get("sessionFile")
+        .and_then(|v| v.as_str())
+        .ok_or("no active session file")?;
+    let entry_id = find_entry_id_by_timestamp(session_file, timestamp)?
+        .ok_or_else(|| format!("no message with timestamp {timestamp} in session"))?;
+    send(&mgr, &workspace, PiOutbound::Fork { id: None, entry_id }).await
+}
+
 #[tauri::command]
 pub async fn agent_compact(
     workspace: String,
@@ -579,5 +676,33 @@ mod tests {
 
         assert!(!next.contains_key("MCP_SERVERS"));
         assert_eq!(next.get("MCP_DISABLED").map(String::as_str), Some("1"));
+    }
+
+    fn write_tmp(name: &str, body: &str) -> String {
+        use std::io::Write;
+        let mut p = std::env::temp_dir();
+        p.push(name);
+        let mut f = std::fs::File::create(&p).unwrap();
+        f.write_all(body.as_bytes()).unwrap();
+        p.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn find_entry_id_by_timestamp_returns_last_matching_message() {
+        let body = concat!(
+            "{\"type\":\"message\",\"id\":\"a\",\"message\":{\"timestamp\":100}}\n",
+            "{\"type\":\"other\",\"id\":\"skip\",\"message\":{\"timestamp\":100}}\n",
+            "\n",
+            "{\"type\":\"message\",\"id\":\"b\",\"message\":{\"timestamp\":100}}\n",
+            "{\"type\":\"message\",\"id\":\"c\",\"message\":{\"timestamp\":200}}\n"
+        );
+        let path = write_tmp("gren_rewind_test_1.jsonl", body);
+        // 取最后匹配，忽略非 message 行与空行。
+        assert_eq!(
+            find_entry_id_by_timestamp(&path, 100).unwrap(),
+            Some("b".to_string())
+        );
+        assert_eq!(find_entry_id_by_timestamp(&path, 200).unwrap(), Some("c".to_string()));
+        assert_eq!(find_entry_id_by_timestamp(&path, 999).unwrap(), None);
     }
 }

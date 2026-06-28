@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { profileToEnv, resolveProfile } from "./capability.js";
-import { buildSubagentRuntimeConfig, extractFinalText, resolvePiCommand, resolveSubagentModel } from "./runner.js";
+import { buildSubagentRuntimeConfig, extractFinalText, isAgentEndLine, resolvePiCommand, resolveSubagentModel } from "./runner.js";
 
 const origPiBin = process.env.PI_BIN;
 const origSubagentModel = process.env.SUBAGENT_MODEL;
@@ -159,5 +159,27 @@ describe("extractFinalText", () => {
   });
   it("falls back to a tail slice when no assistant message is present", () => {
     expect(extractFinalText("not json at all")).toBe("not json at all");
+  });
+});
+
+// 完成检测核心：逐行解析判定 agent_end，取代旧的「对整段 buffer 跑 /agent_end/ 正则」。
+// 关键回归点是「文本里出现 agent_end 字样不能被误判为完成」——旧正则会，导致子代理被提前 kill。
+describe("isAgentEndLine", () => {
+  it("returns true for a real agent_end event line", () => {
+    expect(isAgentEndLine(JSON.stringify({ type: "agent_end", messages: [] }))).toBe(true);
+  });
+  it("ignores surrounding whitespace", () => {
+    expect(isAgentEndLine(`  ${JSON.stringify({ type: "agent_end" })}  `)).toBe(true);
+  });
+  it("does NOT match when 'agent_end' only appears inside text content (old regex false positive)", () => {
+    const line = JSON.stringify({ type: "message_update", text: "I will emit an agent_end event soon" });
+    expect(isAgentEndLine(line)).toBe(false);
+  });
+  it("returns false for other event types, blank, and malformed lines", () => {
+    expect(isAgentEndLine(JSON.stringify({ type: "agent_start" }))).toBe(false);
+    expect(isAgentEndLine("")).toBe(false);
+    expect(isAgentEndLine("   ")).toBe(false);
+    expect(isAgentEndLine("not json at all")).toBe(false);
+    expect(isAgentEndLine('{"type":')).toBe(false);
   });
 });

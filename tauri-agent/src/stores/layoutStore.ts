@@ -220,9 +220,16 @@ export const useLayoutStore = create<LayoutState>()(
         sidebarWidth: state.sidebarWidth,
         sidebarOpen: state.sidebarOpen,
         rightPanelWidth: state.rightPanelWidth,
-        rightPanelOpen: state.rightPanelOpen,
         terminalHeight: state.terminalHeight,
         terminalOpen: state.terminalOpen,
+      }),
+      // 右面板：启动一律默认关闭，不跟随上次会话的开关状态恢复（用户要求「启动界面默认不打开右侧面板」）。
+      // 因此不持久化 rightPanelOpen，并在 rehydrate 合并时强制为 false——兼容旧 localStorage 里已存的 true。
+      // 宽度仍持久化：用户再次打开时沿用其偏好宽度；会话内打开/关闭照常工作。
+      merge: (persisted, current) => ({
+        ...current,
+        ...(persisted as Partial<LayoutState>),
+        rightPanelOpen: false,
       }),
     },
   ),

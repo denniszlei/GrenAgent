@@ -2,7 +2,7 @@ import { useRef, type CSSProperties } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'motion/react';
 import { Icon } from '@lobehub/ui';
 import { cssVar } from 'antd-style';
-import { AlertTriangle, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Loader2, RefreshCw, X } from 'lucide-react';
 import { ChatListView } from './ChatListView';
 import { ChatListSkeleton } from './ChatListSkeleton';
 import { ChatInput } from './ChatInput';
@@ -12,6 +12,7 @@ import { pi } from '../../lib/pi';
 import { isUnder, pathsEquivalent } from '../../lib/pathUtils';
 import { syncSidebarOnSend } from '../../lib/sidebarSessionSync';
 import { markScratchUsed } from '../../lib/startupConversation';
+import { createStartupPerf } from '../../lib/startupPerf';
 import { useSessionStore } from '../../store/session';
 import { useAgentStoreContext } from '../../stores/AgentStoreContext';
 import { commandLanes } from '../../lib/commandLanes';
@@ -92,6 +93,7 @@ export function ChatView() {
   const messages = store.useStore((s) => s.messages);
   const lastError = store.useStore((s) => s.lastError);
   const retrying = store.useStore((s) => s.retrying);
+  const compacting = store.useStore((s) => s.compacting);
   const isEmpty = messages.length === 0;
   const isConversation = Boolean(worksDir && isUnder(workspace, worksDir));
   const isDraftConversation = Boolean(draftConversationCwd && pathsEquivalent(draftConversationCwd, workspace));
@@ -146,14 +148,27 @@ export function ChatView() {
 
     store.useStore.setState({ lastError: undefined, retrying: undefined });
     if (text || images?.length) store.pushUserMessage(text, images);
+    // 发送即置「准备响应中」：桥接到后端首个 agent_start 之间的冷启动/会话预备窗口，消除无反馈空档。
+    store.useStore.setState({ awaitingResponse: true });
+    // 发送路径性能埋点：拆出 openWorkspace / newSession / getState / promptToStream 各耗时
+    //（DEV 控制台 [PERF-startup] send:<ws>），用于定位「新对话/久置后发送」的延迟究竟卡在哪。
+    const sendPerf = createStartupPerf(`send:${workspace}`);
 
     const ensureSessionForSend = async () => {
       if (!isDraftConversation && activeSessionPath) return;
       if (!isConversation) return;
       const st = useSessionStore.getState();
+      sendPerf.start('openWorkspace');
       const openResult = await pi.openWorkspace(workspace);
-      if (!openResult.sessionFile) await pi.newSession(workspace);
+      sendPerf.end('openWorkspace');
+      if (!openResult.sessionFile) {
+        sendPerf.start('newSession');
+        await pi.newSession(workspace);
+        sendPerf.end('newSession');
+      }
+      sendPerf.start('getState');
       const state = (await pi.getState(workspace)) as { sessionFile?: string };
+      sendPerf.end('getState');
       const path = state.sessionFile ?? openResult.sessionFile;
       if (path) {
         st.setActiveSession(path);
@@ -172,10 +187,13 @@ export function ChatView() {
     };
 
     try {
+      sendPerf.start('ensureSession');
       await ensureSessionForSend();
+      sendPerf.end('ensureSession');
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      store.useStore.setState({ lastError: msg, isStreaming: false });
+      store.useStore.setState({ lastError: msg, isStreaming: false, awaitingResponse: false });
+      sendPerf.report();
       return;
     }
     if (text) void syncSidebarOnSend(workspace, text);
@@ -188,14 +206,25 @@ export function ChatView() {
     > => {
       const beforeCount = store.useStore.getState().messages.length;
       let turnStarted = store.useStore.getState().isStreaming;
+      let streamTimed = turnStarted;
+      sendPerf.start('promptToStream');
       const unsub = store.useStore.subscribe((s) => {
-        if (s.isStreaming) turnStarted = true;
+        if (s.isStreaming) {
+          turnStarted = true;
+          if (!streamTimed) {
+            streamTimed = true;
+            sendPerf.end('promptToStream');
+          }
+        }
       });
       try {
         store.useStore.setState({ lastError: undefined });
         await commandLanes.run(workspace, async () => {
           await pi.prompt(workspace, text, undefined, images);
-          await awaitStreamingEnd(store.useStore);
+          await awaitStreamingEnd(
+            store.useStore,
+            /^\//.test(text.trim()) ? { startTimeoutMs: 2000 } : undefined,
+          );
         });
         const cur = store.useStore.getState();
         const retryable = !turnStarted && cur.messages.length === beforeCount;
@@ -206,7 +235,10 @@ export function ChatView() {
         }
         if (cur.lastError) return { ok: false, error: cur.lastError, retryable };
         const last = cur.messages[cur.messages.length - 1];
-        if (!text.startsWith('/') && !cur.isStreaming && last?.kind === 'user') {
+        // 「空轮」仅当一轮确实跑过却无任何输出（agent_start 已把 awaitingResponse 清掉）。
+        // 若 awaitingResponse 仍为 true，说明首响应（agent_start）尚未到达——这是慢启动而非空轮，
+        // 不可误判失败：否则会闪出「发送失败，正在重试」红条并重发 prompt（潜在重复轮次）。
+        if (!text.startsWith('/') && !cur.isStreaming && !cur.awaitingResponse && last?.kind === 'user') {
           return { ok: false, error: EMPTY_TURN_MSG, retryable };
         }
         return { ok: true };
@@ -240,17 +272,19 @@ export function ChatView() {
       result = await runOnce();
       retriesDone = attempt;
     }
-    store.useStore.setState({ retrying: undefined });
+    store.useStore.setState({ retrying: undefined, awaitingResponse: false });
+    sendPerf.report();
 
     if (!result.ok && result.aborted) {
       // 中断不是错误：清掉流式态、事件流可能写入的中断错误与中断标记，避免残留红色错误条。
-      store.useStore.setState({ isStreaming: false, lastError: undefined, aborting: false });
+      store.useStore.setState({ isStreaming: false, lastError: undefined, aborting: false, awaitingResponse: false });
     } else if (!result.ok) {
       // 仅在确实重试过时才提示「已重试 N 次」；turn 已开始即失败（未重试）直接显示错误，避免误导。
       const prefix = retriesDone > 0 ? `已重试 ${retriesDone} 次仍失败：` : '';
       store.useStore.setState({
         lastError: `${prefix}${result.error}`,
         isStreaming: false,
+        awaitingResponse: false,
       });
     }
   };
@@ -273,6 +307,13 @@ export function ChatView() {
       <span style={{ flex: 1, minWidth: 0 }}>
         发送失败，正在重试（{retrying.attempt}/{retrying.max}）…
       </span>
+    </div>
+  ) : null;
+
+  const compactingIndicator = compacting ? (
+    <div style={retryBannerStyle} data-testid="compaction-indicator">
+      <Icon icon={Loader2} spin size={14} />
+      <span style={{ flex: 1, minWidth: 0 }}>正在压缩上下文…</span>
     </div>
   ) : null;
 
@@ -320,6 +361,7 @@ export function ChatView() {
                 </motion.div>
               </AnimatePresence>
               {retryIndicator}
+              {compactingIndicator}
               {errorBanner}
               <ChatInput onSend={handleSend} onAbort={handleAbort} />
             </motion.div>
@@ -333,6 +375,7 @@ export function ChatView() {
                 形变动画把输入框弹动一下。作为兄弟节点插在输入框上方，高度变化由上方 flex:1 的消息区吸收，
                 输入框位置不动、不再弹动。 */}
             {retryIndicator}
+            {compactingIndicator}
             {errorBanner}
             <motion.div
               layout

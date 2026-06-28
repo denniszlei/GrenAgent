@@ -5,6 +5,7 @@ import {
   addUserMessage,
   messagesFromAgent,
   messagesFromTranscript,
+  excludedFromAgent,
   type ChatMessage,
 } from './agentReducer';
 import type { AgentEvent } from '../lib/pi';
@@ -41,10 +42,71 @@ describe('applyEvent', () => {
     expect(text(s.messages.at(-1)!)).toBe('Hello world'); // 替换语义：不是 'HelloHello world'
   });
 
+  it('tracks compaction status via compaction_start / compaction_end', () => {
+    let s = initialAgentState();
+    s = applyEvent(s, { type: 'compaction_start', reason: 'auto' } as AgentEvent);
+    expect(s.compacting).toBe(true);
+    s = applyEvent(s, { type: 'compaction_end', reason: 'auto', aborted: false, willRetry: false } as AgentEvent);
+    expect(s.compacting).toBe(false);
+  });
+
+  it('surfaces a failed compaction (aborted, no retry, with message) as lastError', () => {
+    let s = initialAgentState();
+    s = applyEvent(s, { type: 'compaction_start', reason: 'auto' } as AgentEvent);
+    s = applyEvent(s, {
+      type: 'compaction_end',
+      reason: 'auto',
+      aborted: true,
+      willRetry: false,
+      errorMessage: 'boom',
+    } as AgentEvent);
+    expect(s.compacting).toBe(false);
+    expect(s.lastError).toBe('boom');
+  });
+
+  it('does not surface an error when compaction will auto-retry', () => {
+    let s = initialAgentState();
+    s = applyEvent(s, { type: 'compaction_start', reason: 'auto' } as AgentEvent);
+    s = applyEvent(s, {
+      type: 'compaction_end',
+      reason: 'auto',
+      aborted: true,
+      willRetry: true,
+      errorMessage: 'transient',
+    } as AgentEvent);
+    expect(s.compacting).toBe(false);
+    expect(s.lastError).toBeUndefined();
+  });
+
+  it('clears compacting on agent_end (defensive)', () => {
+    let s = initialAgentState();
+    s = applyEvent(s, { type: 'compaction_start', reason: 'auto' } as AgentEvent);
+    s = applyEvent(s, { type: 'agent_end' } as AgentEvent);
+    expect(s.compacting).toBe(false);
+  });
+
   it('finalizes on agent_end and clears streaming', () => {
     let s = initialAgentState();
     s = applyEvent(s, { type: 'agent_start' } as AgentEvent);
     s = applyEvent(s, { type: 'agent_end', messages: [] } as AgentEvent);
+    expect(s.isStreaming).toBe(false);
+  });
+
+  it('agent_end clears only the streaming assistant and preserves identity of settled messages', () => {
+    let s = initialAgentState();
+    // 先落一条已完成（非 streaming）assistant
+    s = applyEvent(s, { type: 'message_end', message: { role: 'assistant', content: 'earlier' } } as AgentEvent);
+    const settled = s.messages[0];
+    expect(settled.kind === 'assistant' && settled.streaming).toBe(false);
+    // 再开一条 streaming assistant
+    s = applyEvent(s, { type: 'message_start', message: { role: 'assistant', content: 'live...' } } as AgentEvent);
+    const streamingMsg = s.messages[1];
+    expect(streamingMsg.kind === 'assistant' && streamingMsg.streaming).toBe(true);
+    // agent_end：只该 streaming 条被克隆改 false，已完成条保持引用不变
+    s = applyEvent(s, { type: 'agent_end' } as AgentEvent);
+    expect(s.messages[0]).toBe(settled); // 引用不变 → 未被克隆
+    const last = s.messages[1];
+    expect(last.kind === 'assistant' && last.streaming).toBe(false);
     expect(s.isStreaming).toBe(false);
   });
 
@@ -270,5 +332,34 @@ describe('messagesFromTranscript (子代理 JSONL 还原)', () => {
   it('ignores blank lines and malformed json', () => {
     const transcript = ['', 'not json', JSON.stringify({ type: 'agent_start' }), '  '].join('\n');
     expect(messagesFromTranscript(transcript)).toEqual([]);
+  });
+});
+
+describe('messagesFromAgent 提取 timestamp', () => {
+  it('user 消息带 message.timestamp 时回填到 ChatMessage.timestamp', () => {
+    const msgs = messagesFromAgent([
+      { role: 'user', content: 'hi', timestamp: 1730000000000 } as never,
+    ]);
+    expect(msgs[0].kind === 'user' ? msgs[0].timestamp : undefined).toBe(1730000000000);
+  });
+});
+
+describe('excludedFromAgent', () => {
+  it('按序回放 add/remove 重建排除集', () => {
+    const set = excludedFromAgent([
+      { role: 'custom', customType: 'context_exclusion', data: { op: 'add', ts: 1 } },
+      { role: 'custom', customType: 'context_exclusion', data: { op: 'add', ts: 2 } },
+      { role: 'custom', customType: 'context_exclusion', data: { op: 'remove', ts: 1 } },
+    ] as never);
+    expect([...set].sort((a, b) => a - b)).toEqual([2]);
+  });
+
+  it('忽略非 context_exclusion 与缺 ts 的条目（fail-soft）', () => {
+    const set = excludedFromAgent([
+      { role: 'user', content: 'x', timestamp: 5 },
+      { role: 'custom', customType: 'context_exclusion' },
+      { role: 'custom', customType: 'other', data: { op: 'add', ts: 9 } },
+    ] as never);
+    expect(set.size).toBe(0);
   });
 });

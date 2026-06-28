@@ -7,7 +7,15 @@ export interface UserImage {
 }
 
 export type ChatMessage =
-  | { kind: 'user'; id: string; text: string; images?: UserImage[]; steering?: boolean }
+  | {
+      kind: 'user';
+      id: string;
+      text: string;
+      images?: UserImage[];
+      steering?: boolean;
+      /** pi 消息自带的 Unix ms 时间戳；作为「移出上下文 / 回退到此」的稳定 key。本地新发的消息在落盘前为 undefined。 */
+      timestamp?: number;
+    }
   | {
       kind: 'assistant';
       id: string;
@@ -26,6 +34,8 @@ export type ChatMessage =
 
 export interface AgentState {
   messages: ChatMessage[];
+  /** 被用户「移出上下文」的消息 timestamp 集合（对模型不可见，不删盘，可恢复）。UI 据此灰显。 */
+  excluded: Set<number>;
   isStreaming: boolean;
   steering: string[];
   followUp: string[];
@@ -35,10 +45,16 @@ export interface AgentState {
   /** 用户主动中断进行中：abort 触发的 "request aborted" 类报错不该弹红条，置位期间 reducer 丢弃这些
    * 错误（仅抑制用户主动中断，不影响真实失败）。由 ChatView 点停止时置位，agent_start/agent_end 清位。 */
   aborting?: boolean;
+  /** 发送后到后端首个 agent_start 之间的「准备响应中」占位态：发送即置位，agent_start/agent_end/出错清位。
+   * 用于在 isStreaming 尚未为 true 的冷启动/会话预备窗口立即给出等待反馈（消除「不知道在等什么」的空档）。 */
+  awaitingResponse?: boolean;
+  /** 上下文压缩进行中：由 pi 的 compaction_start/compaction_end 事件驱动，UI 据此显示「正在压缩上下文…」。
+   * 此前这两个事件被前端丢弃，压缩（手动 /compact 或自动）全程无任何状态反馈。 */
+  compacting?: boolean;
 }
 
 export function initialAgentState(): AgentState {
-  return { messages: [], isStreaming: false, steering: [], followUp: [] };
+  return { messages: [], excluded: new Set(), isStreaming: false, steering: [], followUp: [] };
 }
 
 let counter = 0;
@@ -163,18 +179,29 @@ function applyCustomMessage(state: AgentState, msg: AgentMessage): AgentState {
 export function applyEvent(state: AgentState, event: AgentEvent): AgentState {
   switch (event.type) {
     case 'agent_start':
-      // 一轮真正开始流式：清掉「正在重试」指示（成功重连/重发）、上一条错误与中断标记。
-      return { ...state, isStreaming: true, lastError: undefined, retrying: undefined, aborting: false };
+      // 一轮真正开始流式：清掉「正在重试」指示（成功重连/重发）、上一条错误与中断标记，
+      // 并清掉「准备响应中」占位（由 isStreaming 接管等待指示，无缝过渡）。
+      return { ...state, isStreaming: true, awaitingResponse: false, lastError: undefined, retrying: undefined, aborting: false };
 
-    case 'agent_end':
+    case 'agent_end': {
+      // 只克隆仍处于 streaming 的 assistant（通常 0~1 条），其余保留引用，避免每轮克隆整段历史。
+      let touched = false;
+      const messages = state.messages.map((m) => {
+        if (m.kind === 'assistant' && m.streaming) {
+          touched = true;
+          return { ...m, streaming: false };
+        }
+        return m;
+      });
       return {
         ...state,
         isStreaming: false,
+        awaitingResponse: false,
         aborting: false,
-        messages: state.messages.map((m) =>
-          m.kind === 'assistant' ? { ...m, streaming: false } : m,
-        ),
+        compacting: false,
+        messages: touched ? messages : state.messages,
       };
+    }
 
     case 'message_start': {
       const ev = event as Extract<AgentEvent, { type: 'message_start' }>;
@@ -347,6 +374,16 @@ export function applyEvent(state: AgentState, event: AgentEvent): AgentState {
       return { ...state, lastError: ev.error };
     }
 
+    case 'compaction_start':
+      return { ...state, compacting: true };
+
+    case 'compaction_end': {
+      const ev = event as Extract<AgentEvent, { type: 'compaction_end' }>;
+      // 仅在「压缩失败且不再自动重试」时把错误亮出来；正常完成 / 用户取消 / 将自动重试都只是清掉「压缩中」。
+      const lastError = ev.aborted && !ev.willRetry && ev.errorMessage ? ev.errorMessage : state.lastError;
+      return { ...state, compacting: false, lastError };
+    }
+
     default: {
       // 兜底：捕获未显式建模、但带 string error 字段的错误事件，避免失败被静默吞掉。
       // 注意：不在此处设 isStreaming:false——流尚未结束（agent_end 还没到），提前停流会让
@@ -412,7 +449,13 @@ export function messagesFromAgent(
       const { text } = extractText(msg);
       const images = extractImages(msg);
       if (text.trim() || images.length)
-        out.push({ kind: 'user', id: nextId(), text, images: images.length ? images : undefined });
+        out.push({
+          kind: 'user',
+          id: nextId(),
+          text,
+          images: images.length ? images : undefined,
+          timestamp: messageTimestamp(msg),
+        });
       continue;
     }
     if (msg.role === 'assistant') {
@@ -451,6 +494,26 @@ export function messagesFromAgent(
     }
   }
   return out;
+}
+
+/**
+ * 从 pi get_messages 结果重建「上下文排除集」：扫描 context_exclusion 自定义条目按序回放 add/remove。
+ * 排除集由 compaction-policy 扩展持久化在会话树（appendEntry），切换/重载会话后据此恢复灰显。
+ * 条目结构按运行时为准做防御解析（data 优先、回退条目本身），取不到则忽略（fail-soft）：
+ * 最坏情况只是灰显缺失，不影响扩展在模型侧的真实排除。
+ */
+export function excludedFromAgent(msgs: AgentMessage[]): Set<number> {
+  const set = new Set<number>();
+  for (const msg of msgs) {
+    const m = msg as { customType?: unknown; data?: unknown };
+    if (m.customType !== 'context_exclusion') continue;
+    const raw = (m.data && typeof m.data === 'object' ? m.data : msg) as { op?: unknown; ts?: unknown };
+    const ts = typeof raw.ts === 'number' && Number.isFinite(raw.ts) ? raw.ts : null;
+    if (ts == null) continue;
+    if (raw.op === 'remove') set.delete(ts);
+    else set.add(ts);
+  }
+  return set;
 }
 
 /**

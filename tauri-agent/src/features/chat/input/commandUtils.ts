@@ -1,9 +1,6 @@
 import type { EditorSlashMenuItems, EditorSlashMenuOption } from '@lobehub/ui';
 import type { CommandApiSource, PiCommand } from './commandTypes';
 
-/** Frontend-handled slash commands (override Pi builtin namesakes). */
-export const FRONTEND_COMMAND_NAMES = new Set(['compact', 'new', 'newSession']);
-
 const GROUP_LABELS: Record<CommandApiSource | 'frontend', string> = {
   frontend: '快捷操作',
   builtin: '内置',
@@ -122,6 +119,20 @@ function groupKey(command: PiCommand): CommandApiSource | 'frontend' {
  */
 function stripSkillPrefix(name: string): string {
   return name.startsWith('skill:') ? name.slice(6) : name;
+}
+
+/**
+ * slash 菜单按「命令名前缀」匹配：用户输入 /xxx 只应出名字以 xxx 开头的命令。
+ * 也匹配技能去掉 `skill:` 前缀后的展示名，使 /caveman 能命中 skill:caveman。
+ * 刻意不匹配 description——否则会把名字非前缀、仅描述里含该词的命令也搜出来（用户反馈的噪音来源）。
+ */
+export function commandMatchesQuery(command: PiCommand, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const name = command.name.toLowerCase();
+  if (name.startsWith(q)) return true;
+  const display = stripSkillPrefix(command.name).toLowerCase();
+  return display !== name && display.startsWith(q);
 }
 
 function toMenuOption(command: PiCommand): EditorSlashMenuOption {

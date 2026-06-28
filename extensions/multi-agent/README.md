@@ -15,7 +15,9 @@
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `PI_BIN` | `pi`(走 PATH) | 子进程用的 pi 可执行;可设为绝对路径或包装脚本 |
-| `SUBAGENT_TIMEOUT_MS` | `120000` | 单个子 agent 超时(到点 kill) |
+| `SUBAGENT_TIMEOUT_MS` | `300000` | 单个子 agent **空闲**超时:连续无输出超过此值才判卡死 kill(每段输出都会重置计时,非固定总预算) |
+| `SUBAGENT_STARTUP_MS` | `max(idle×2, 300000)` | **首字节/启动宽限**:收到第一个输出前用此更长超时(覆盖冷启动 + 连 MCP + 等 LLM 首 token),收到首字节后切回 `SUBAGENT_TIMEOUT_MS` |
+| `SUBAGENT_QUIET_MS` | `60000` | **静默完成兜底**:已产出实质输出且不在工具执行中时,stdout 安静超过此值即按完成收尾(success),覆盖子代理跑完不发 agent_end/不退出的情况;设 `0` 禁用,跑超长工具可调大 |
 
 > 子进程**继承当前环境变量**(包括 provider key),所以主进程能跑,子 agent 才能跑。
 

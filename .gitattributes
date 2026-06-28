@@ -1,0 +1,22 @@
+# 统一文本文件行尾符为 LF，杜绝 core.autocrlf 不一致导致的整文件 diff 污染。
+# text=auto 让 git 自动识别二进制（不会被转换）。
+* text=auto eol=lf
+
+# Windows 专用脚本保留 CRLF（部分宿主对 LF 批处理/脚本不友好）。
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 常见二进制显式标注，避免任何行尾符处理。
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.wasm binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.pdf binary

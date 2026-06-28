@@ -13,12 +13,14 @@ import astTools from "./ast-tools/index.js";
 import github from "./github/index.js";
 import batchTools from "./batch-tools/index.js";
 import diagnostics from "./diagnostics/index.js";
+import afterToolFeedback from "./after-tool-feedback/index.js";
 import imGateway from "./im-gateway/index.js";
 import imPlatforms from "./im-platforms/index.js";
 import goal from "./goal/index.js";
 import imageGen from "./image-gen/index.js";
 import knowledgeRag from "./knowledge-rag/index.js";
 import longTermMemory from "./long-term-memory/index.js";
+import selfEvolve from "./self-evolve/index.js";
 import sessionMemory from "./session-memory/index.js";
 import mcp from "./mcp/index.js";
 import mcpPolicy from "./mcp-policy/index.js";
@@ -57,6 +59,7 @@ export {
   goal,
   knowledgeRag,
   longTermMemory,
+  selfEvolve,
   sessionMemory,
   webFetch,
   webSearch,
@@ -78,6 +81,7 @@ export {
   tts,
   imGateway,
   imPlatforms,
+  afterToolFeedback,
 };
 
 // Order roughly by general usefulness; safety first so guardrails intercept earliest.
@@ -98,6 +102,7 @@ export const allExtensions = [
   goal,
   knowledgeRag,
   longTermMemory,
+  selfEvolve,
   sessionMemory,
   webFetch,
   webSearch,
@@ -119,4 +124,49 @@ export const allExtensions = [
   tts,
   imGateway,
   imPlatforms,
+  afterToolFeedback,
+];
+
+// 名→工厂映射（与 allExtensions 同序）：供 sidecar 按 EXTENSIONS_PROFILE 过滤加载（真对话模式裁重扩展）。
+// 扩展工厂本身无稳定 name，故在此显式标注，名称对齐各扩展目录名。
+export const namedExtensions: Array<{ name: string; factory: (typeof allExtensions)[number] }> = [
+  { name: "safety", factory: safety },
+  { name: "approval", factory: approval },
+  { name: "loop-guard", factory: loopGuard },
+  { name: "rulebook", factory: rulebook },
+  { name: "compaction-policy", factory: compactionPolicy },
+  { name: "auto-title", factory: autoTitle },
+  { name: "checkpoint", factory: checkpoint },
+  { name: "todo", factory: todo },
+  { name: "agent-mode", factory: agentMode },
+  { name: "debug-tools", factory: debugTools },
+  { name: "dap", factory: dap },
+  { name: "diagram-hint", factory: diagramHint },
+  { name: "fable-behavior", factory: fableBehavior },
+  { name: "goal", factory: goal },
+  { name: "knowledge-rag", factory: knowledgeRag },
+  { name: "long-term-memory", factory: longTermMemory },
+  { name: "self-evolve", factory: selfEvolve },
+  { name: "session-memory", factory: sessionMemory },
+  { name: "web-fetch", factory: webFetch },
+  { name: "web-search", factory: webSearch },
+  { name: "session-search", factory: sessionSearch },
+  { name: "mcp", factory: mcp },
+  { name: "mcp-policy", factory: mcpPolicy },
+  { name: "image-gen", factory: imageGen },
+  { name: "code-review", factory: codeReview },
+  { name: "diagnostics", factory: diagnostics },
+  { name: "multi-agent", factory: multiAgent },
+  { name: "code-intel", factory: codeIntel },
+  { name: "lsp", factory: lsp },
+  { name: "code-search", factory: codeSearch },
+  { name: "ast-tools", factory: astTools },
+  { name: "github", factory: github },
+  { name: "batch-tools", factory: batchTools },
+  { name: "code-exec", factory: codeExec },
+  { name: "hashline", factory: hashline },
+  { name: "tts", factory: tts },
+  { name: "im-gateway", factory: imGateway },
+  { name: "im-platforms", factory: imPlatforms },
+  { name: "after-tool-feedback", factory: afterToolFeedback },
 ];

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useMemo, type MouseEvent } from 'react';
 import type { SubAgentItem } from '../../lib/pi';
-import { accessLabel, parseSubAgentType, presetLabel } from './subAgentType';
+import { accessLabel, parseSubAgentType, presetLabel, subAgentColor } from './subAgentType';
 
 const styles = createStaticStyles(({ css }) => ({
   card: css`
@@ -87,6 +87,12 @@ const styles = createStaticStyles(({ css }) => ({
   stop: css`
     flex: none;
   `,
+  colorBar: css`
+    flex: none;
+    align-self: stretch;
+    width: 3px;
+    border-radius: 3px;
+  `,
 }));
 
 function statusMeta(status: string) {
@@ -136,6 +142,11 @@ export function SubAgentCard({ item, onOpen, onStop }: SubAgentCardProps) {
 
   return (
     <div className={styles.card} onClick={onOpen} data-testid={`subagent-card-${item.id}`}>
+      <span
+        className={styles.colorBar}
+        style={{ background: subAgentColor(item.task || item.id) }}
+        title="子代理身份色"
+      />
       <Block
         align="center"
         justify="center"

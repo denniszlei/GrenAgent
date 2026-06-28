@@ -10,6 +10,7 @@ vi.mock("./agents.js", () => ({
   discoverAgents: () => ({ agents: [], projectAgentsDir: null }),
   resolveAgent: () => undefined,
   suggestAgent: () => undefined,
+  withBuiltinDefaults: (agents: unknown) => agents,
 }));
 vi.mock("./registry.js", () => {
   class SubAgentRegistry {
@@ -42,6 +43,7 @@ vi.mock("../_shared/approval.js", () => ({ getApprovalPolicy: vi.fn(() => "auto"
 vi.mock("../_shared/runtime-config.js", () => ({ getConfig: vi.fn(() => undefined) }));
 
 import { getApprovalPolicy } from "../_shared/approval.js";
+import { getConfig } from "../_shared/runtime-config.js";
 import { sandboxAvailable } from "../_shared/sandbox-gate.js";
 import multiAgent from "./index.js";
 import { spawnPiAgent } from "./runner.js";
@@ -62,6 +64,7 @@ function loadSpawnAgent(): Execute {
     },
     registerCommand: () => {},
     sendUserMessage: () => {},
+    on: () => {},
   };
   multiAgent(pi as unknown as Parameters<typeof multiAgent>[0]);
   return exec!;
@@ -76,6 +79,8 @@ beforeEach(() => {
   delete process.env.SAFETY_READONLY;
   vi.mocked(sandboxAvailable).mockResolvedValue(false);
   vi.mocked(getApprovalPolicy).mockReturnValue("auto");
+  // 默认不限单会话上限，避免无关的 spawn 行为测试因模块级累计计数被拦；上限专测在下方单独设值。
+  vi.mocked(getConfig).mockImplementation((k: string) => (k === "SUBAGENT_MAX_PER_SESSION" ? "0" : undefined));
 });
 
 describe("spawn_agent · sandbox downgrade visibility (D)", () => {
@@ -118,5 +123,40 @@ describe("spawn_agent · approval policy injected into sub-agent (B)", () => {
     vi.mocked(getApprovalPolicy).mockReturnValue("auto");
     await loadSpawnAgent()("t6", { task: "do x" }, null, null, ctx);
     expect(injectedPolicy()).toBe("auto");
+  });
+});
+
+// 并行健壮性：一个任务出错（这里用未知 agent 触发 agentLayer 抛错）不应 reject 整个 Promise.all
+// 而遗弃其它正在运行的兄弟任务——应就地记为该任务失败、其余照常跑完。
+describe("spawn_agent · parallel resilience (one failing task does not abort siblings)", () => {
+  it("records the bad-agent task as failed and still completes the others", async () => {
+    const r = await loadSpawnAgent()(
+      "tp",
+      { tasks: ["do A", { task: "do B", agent: "nonexistent" }, "do C"] },
+      null,
+      null,
+      ctx,
+    );
+    expect(r.details?.mode).toBe("parallel");
+    const results = r.details?.results as Array<{ task: string; ok: boolean; error?: string }>;
+    expect(results).toHaveLength(3);
+    const byTask = Object.fromEntries(results.map((x) => [x.task, x]));
+    expect(byTask["do A"].ok).toBe(true);
+    expect(byTask["do C"].ok).toBe(true);
+    expect(byTask["do B"].ok).toBe(false);
+    expect(byTask["do B"].error).toContain("unknown agent");
+    expect(r.details?.failed).toBe(1);
+  });
+});
+
+// 单会话最大子代理数：本次请求数 + 会话已累计超过上限时，整次 spawn 在实际启动前被拒。
+describe("spawn_agent · 单会话上限 (SUBAGENT_MAX_PER_SESSION)", () => {
+  it("超过上限时拒绝新 spawn 并提示去设置调整", async () => {
+    vi.mocked(getConfig).mockImplementation((k: string) => (k === "SUBAGENT_MAX_PER_SESSION" ? "2" : undefined));
+    // 独立 cwd → 独立 sessionKey，避免与其它测试的模块级累计计数相互污染。
+    const capCtx = { cwd: process.platform === "win32" ? "D:\\caplimit" : "/caplimit" };
+    await expect(loadSpawnAgent()("tc", { tasks: ["a", "b", "c"] }, null, null, capCtx)).rejects.toThrow(
+      "已达单会话子代理上限",
+    );
   });
 });
