@@ -183,17 +183,25 @@ export function applyEvent(state: AgentState, event: AgentEvent): AgentState {
       // 并清掉「准备响应中」占位（由 isStreaming 接管等待指示，无缝过渡）。
       return { ...state, isStreaming: true, awaitingResponse: false, lastError: undefined, retrying: undefined, aborting: false };
 
-    case 'agent_end':
+    case 'agent_end': {
+      // 只克隆仍处于 streaming 的 assistant（通常 0~1 条），其余保留引用，避免每轮克隆整段历史。
+      let touched = false;
+      const messages = state.messages.map((m) => {
+        if (m.kind === 'assistant' && m.streaming) {
+          touched = true;
+          return { ...m, streaming: false };
+        }
+        return m;
+      });
       return {
         ...state,
         isStreaming: false,
         awaitingResponse: false,
         aborting: false,
         compacting: false,
-        messages: state.messages.map((m) =>
-          m.kind === 'assistant' ? { ...m, streaming: false } : m,
-        ),
+        messages: touched ? messages : state.messages,
       };
+    }
 
     case 'message_start': {
       const ev = event as Extract<AgentEvent, { type: 'message_start' }>;

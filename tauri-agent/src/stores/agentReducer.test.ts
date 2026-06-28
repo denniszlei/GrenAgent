@@ -92,6 +92,24 @@ describe('applyEvent', () => {
     expect(s.isStreaming).toBe(false);
   });
 
+  it('agent_end clears only the streaming assistant and preserves identity of settled messages', () => {
+    let s = initialAgentState();
+    // 先落一条已完成（非 streaming）assistant
+    s = applyEvent(s, { type: 'message_end', message: { role: 'assistant', content: 'earlier' } } as AgentEvent);
+    const settled = s.messages[0];
+    expect(settled.kind === 'assistant' && settled.streaming).toBe(false);
+    // 再开一条 streaming assistant
+    s = applyEvent(s, { type: 'message_start', message: { role: 'assistant', content: 'live...' } } as AgentEvent);
+    const streamingMsg = s.messages[1];
+    expect(streamingMsg.kind === 'assistant' && streamingMsg.streaming).toBe(true);
+    // agent_end：只该 streaming 条被克隆改 false，已完成条保持引用不变
+    s = applyEvent(s, { type: 'agent_end' } as AgentEvent);
+    expect(s.messages[0]).toBe(settled); // 引用不变 → 未被克隆
+    const last = s.messages[1];
+    expect(last.kind === 'assistant' && last.streaming).toBe(false);
+    expect(s.isStreaming).toBe(false);
+  });
+
   it('tracks tool calls by toolCallId', () => {
     let s = initialAgentState();
     s = applyEvent(s, {
