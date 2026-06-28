@@ -2,25 +2,7 @@ import { StrictMode, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ConfigProvider, ThemeProvider } from '@lobehub/ui';
 import { m } from 'motion/react';
-import {
-  Bot,
-  Boxes,
-  Brain,
-  FilePen,
-  FilePlus,
-  FileText,
-  FolderOpen,
-  Globe,
-  Image as ImageIcon,
-  ListChecks,
-  Moon,
-  Network,
-  Search,
-  Sparkles,
-  Sun,
-  Terminal,
-  Volume2,
-} from 'lucide-react';
+import { Bot, Boxes, FilePen, FileText, Moon, Sparkles, Sun, Terminal } from 'lucide-react';
 import { ThemeBridge } from './components/ThemeBridge';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToolExecution } from './features/tools/ToolExecution';
